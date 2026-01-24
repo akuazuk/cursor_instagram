@@ -731,6 +731,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         clusters_csv = cfg.output_dir / f"clusters_{tag}.csv"
         categories_csv = cfg.output_dir / f"categories_{tag}.csv"
         recommendations_csv = cfg.output_dir / f"recommendations_{tag}.csv"
+        recommendations_clusters_csv = cfg.output_dir / f"recommendations_clusters_{tag}.csv"
         trends_csv = cfg.output_dir / f"trends_categories_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
@@ -880,6 +881,9 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         recommendations_rows, recommendations_for_report = _build_recommendations(rows, taxonomy=taxonomy)
         _write_recommendations_csv(recommendations_csv, recommendations_rows)
 
+        rec_clusters_rows = _build_cluster_recommendations_csv(clusters_for_report)
+        _write_cluster_recommendations_csv(recommendations_clusters_csv, rec_clusters_rows)
+
         trends_rows, trends_for_report = _build_category_trends(rows, taxonomy=taxonomy, start_s=start_s, end_s=end_s)
         _write_trends_csv(trends_csv, trends_rows)
 
@@ -893,6 +897,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             clusters_csv=clusters_csv,
             categories_csv=categories_csv,
             recommendations_csv=recommendations_csv,
+            recommendations_clusters_csv=recommendations_clusters_csv,
             trends_csv=trends_csv,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
@@ -910,6 +915,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         outputs[f"clusters_{tag}"] = clusters_csv
         outputs[f"categories_{tag}"] = categories_csv
         outputs[f"recommendations_{tag}"] = recommendations_csv
+        outputs[f"recommendations_clusters_{tag}"] = recommendations_clusters_csv
         outputs[f"trends_categories_{tag}"] = trends_csv
         outputs[f"report_{tag}"] = report_html
 
@@ -1435,6 +1441,7 @@ def _build_clusters_analysis(
     # 1) Собираем tokens per post + частоты токенов
     posts: list[dict[str, Any]] = []
     token_freq: dict[str, int] = defaultdict(int)
+    token_profiles: dict[str, set[str]] = defaultdict(set)
 
     for r in item_rows:
         profile = str(r[0] or "")
@@ -1452,11 +1459,24 @@ def _build_clusters_analysis(
             continue
         for t in tokens:
             token_freq[t] += 1
+            token_profiles[t].add(profile)
 
         posts.append({"profile": profile, "url": url, "likes": likes_i, "views": views_i, "tokens": tokens})
 
-    # 2) Фильтруем токены по частоте
-    vocab = {t for t, c in token_freq.items() if c >= min_token_posts}
+    # 2) Фильтруем токены по частоте и "слишком общие" токены
+    total_posts = len(posts) or 1
+    total_profiles = len({p["profile"] for p in posts if p.get("profile")}) or 1
+
+    def is_too_generic(t: str) -> bool:
+        # слишком часто встречается (глобально)
+        if (token_freq.get(t, 0) / total_posts) >= 0.25:
+            return True
+        # встречается почти у всех профилей (общее слово бренда/формат)
+        if len(token_profiles.get(t, set())) >= max(3, total_profiles - 1):
+            return True
+        return False
+
+    vocab = {t for t, c in token_freq.items() if c >= min_token_posts and not is_too_generic(t)}
     if not vocab:
         return [], {"min_cluster_posts": min_cluster_posts, "note": "not_enough_data"}
 
@@ -1508,6 +1528,12 @@ def _build_clusters_analysis(
     title_by_id = {}
     if taxonomy:
         title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
+
+    # Precompute top tokens per cluster (for all clusters, not only exported ones)
+    cluster_top_tokens_all: dict[int, str] = {}
+    for idx, comp in enumerate(clusters, start=1):
+        top_tokens = sorted(comp, key=lambda t: token_freq.get(t, 0), reverse=True)[:8]
+        cluster_top_tokens_all[idx] = ",".join(top_tokens)
 
     # 5) Назначаем каждый пост одному кластеру (по максимальному overlap)
     token_to_cluster: dict[str, int] = {}
@@ -1576,6 +1602,15 @@ def _build_clusters_analysis(
 
     # 6) Формируем CSV строки
     clusters_rows: list[list[Any]] = []
+    # category label for each cluster id (all clusters)
+    cluster_cat_all: dict[int, tuple[str, str]] = {}
+    if taxonomy:
+        for idx, comp in enumerate(clusters, start=1):
+            matches = _assign_categories(set(comp), taxonomy)
+            if matches:
+                cid = matches[0][0]
+                cluster_cat_all[idx] = (cid, title_by_id.get(cid, cid))
+
     for idx, comp in enumerate(clusters, start=1):
         st = cluster_stats.get(idx)
         posts_cnt = int(st["posts"]) if st else 0
@@ -1586,22 +1621,14 @@ def _build_clusters_analysis(
         likes_avg = (likes_sum / st["likes_n"]) if st["likes_n"] else 0
         views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
 
-        top_tokens = sorted(comp, key=lambda t: token_freq.get(t, 0), reverse=True)[:8]
-
-        # label cluster by taxonomy (optional)
-        cat_id = ""
-        cat_title = ""
-        if taxonomy:
-            matches = _assign_categories(set(comp), taxonomy)
-            if matches:
-                cat_id = matches[0][0]
-                cat_title = title_by_id.get(cat_id, cat_id)
+        top_tokens = cluster_top_tokens_all.get(idx, "")
+        cat_id, cat_title = cluster_cat_all.get(idx, ("", ""))
         clusters_rows.append(
             [
                 idx,
                 posts_cnt,
                 len(st["profiles"]),
-                ",".join(top_tokens),
+                top_tokens,
                 likes_sum,
                 round(likes_avg, 2),
                 views_sum,
@@ -1630,6 +1657,7 @@ def _build_clusters_analysis(
         "top_by_posts": sorted(clusters_rows, key=lambda r: int(r[1]), reverse=True)[:top_n],
         "per_profile": {},
         "examples_by_cluster": {},
+        "recommendations_per_profile": {},
     }
 
     # examples for report (top posts per cluster)
@@ -1637,6 +1665,84 @@ def _build_clusters_analysis(
         clusters_for_report["examples_by_cluster"][str(cid)] = {
             "top_likes": st.get("top_likes", [])[:3],
             "top_views": st.get("top_views", [])[:3],
+        }
+
+    # recommendations per profile using clusters (more variety than taxonomy categories)
+    # baseline per profile
+    baseline_prof: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
+    assigned_posts_prof: dict[str, int] = defaultdict(int)
+    for p in posts:
+        prof = p["profile"]
+        assigned_posts_prof[prof] += 1
+        b = baseline_prof[prof]
+        b["posts"] += 1
+        if p.get("likes") is not None:
+            b["likes_sum"] += int(p["likes"])
+            b["likes_n"] += 1
+        if p.get("views") is not None:
+            b["views_sum"] += int(p["views"])
+            b["views_n"] += 1
+
+    # quick lookup top_tokens and category title per cluster (for all clusters)
+    top_tokens_by_cluster: dict[int, str] = dict(cluster_top_tokens_all)
+    cluster_cat_title: dict[int, str] = {cid: title for cid, (_, title) in cluster_cat_all.items()}
+
+    SCALE = 1.12
+    REDUCE = 0.92
+    LOW_SHARE = 0.25
+    HIGH_SHARE = 0.40
+    MIN_POSTS = 6
+
+    for prof in sorted({p["profile"] for p in posts if p.get("profile")}):
+        b = baseline_prof.get(prof) or {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0}
+        base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
+        base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
+        total = assigned_posts_prof.get(prof, 0) or 1
+
+        items = []
+        for (cid, p), st in cluster_profile_stats.items():
+            if p != prof or int(st["posts"]) < MIN_POSTS:
+                continue
+            likes_avg = (st["likes_sum"] / st["likes_n"]) if st["likes_n"] else 0
+            views_avg = (st["views_sum"] / st["views_n"]) if st["views_n"] else 0
+            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
+            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
+            share = int(st["posts"]) / total
+            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
+            items.append(
+                {
+                    "cluster_id": cid,
+                    "label": cluster_cat_title.get(cid, ""),
+                    "top_tokens": top_tokens_by_cluster.get(cid, ""),
+                    "posts": int(st["posts"]),
+                    "share": round(share, 3),
+                    "likes_lift": round(likes_lift, 2),
+                    "views_lift": round(views_lift, 2),
+                    "score": round(score, 3),
+                }
+            )
+
+        items.sort(key=lambda x: float(x["score"]), reverse=True)
+        best = items[:5]
+        worst = list(reversed(items[-5:])) if len(items) > 5 else []
+        dominant = max(items, key=lambda x: float(x["share"])) if items else None
+
+        scale = [x for x in items if x["score"] >= SCALE and x["share"] <= LOW_SHARE]
+        keep = [x for x in items if x["score"] >= SCALE and x["share"] > LOW_SHARE]
+        reduce = [x for x in items if x["score"] <= REDUCE and x["share"] >= HIGH_SHARE]
+        experiment = [x for x in items if x["share"] <= LOW_SHARE and REDUCE < x["score"] < SCALE]
+
+        clusters_for_report["recommendations_per_profile"][prof] = {
+            "baseline_likes_avg": round(base_likes_avg, 2),
+            "baseline_views_avg": round(base_views_avg, 2),
+            "thresholds": {"scale": SCALE, "reduce": REDUCE, "low_share": LOW_SHARE, "high_share": HIGH_SHARE, "min_posts": MIN_POSTS},
+            "best": best,
+            "worst": worst,
+            "dominant": dominant,
+            "scale": scale[:6],
+            "keep": keep[:6],
+            "reduce": reduce[:6],
+            "experiment": experiment[:6],
         }
 
     # per-profile top clusters
@@ -1773,6 +1879,9 @@ def _assign_categories(tokens: set[str], taxonomy: dict[str, Any]) -> list[tuple
         if score > 0:
             out.append((str(c.get("id")), score))
     out.sort(key=lambda x: x[1], reverse=True)
+    # фильтр слабых совпадений: 1 слово часто слишком шумное
+    if out and out[0][1] < 2:
+        return []
     return out
 
 
@@ -1964,6 +2073,13 @@ def _build_recommendations(
     rec_rows: list[list[Any]] = []
     per_profile: dict[str, Any] = {}
 
+    # thresholds (tuned for noisy social data)
+    SCALE_LIFT = 1.12
+    REDUCE_LIFT = 0.92
+    LOW_SHARE = 0.25
+    HIGH_SHARE = 0.40
+    EXPERIMENT_MIN_POSTS = 3
+
     for profile, b in baseline.items():
         base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
         base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
@@ -1976,6 +2092,9 @@ def _build_recommendations(
             views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
             likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
             views_lift = (views_avg / base_views_avg) if base_views_avg else 0
+            share = (int(s["posts"]) / b["posts"]) if b["posts"] else 0
+            # composite (если views нет — вес 0.25)
+            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
             rows.append(
                 {
                     "category_id": cat_id,
@@ -1985,25 +2104,74 @@ def _build_recommendations(
                     "views_avg": round(views_avg, 2),
                     "likes_lift": round(likes_lift, 2),
                     "views_lift": round(views_lift, 2),
+                    "share": round(share, 3),
+                    "score": round(score, 3),
                     "top_like_url": s.get("top_like_url", ""),
                     "top_view_url": s.get("top_view_url", ""),
                 }
             )
 
-        # do more = top by (likes_lift + views_lift)
-        rows.sort(key=lambda x: float(x["likes_lift"]) + float(x["views_lift"]), reverse=True)
-        do_more = rows[:5]
-        do_less = list(reversed(rows[-5:])) if len(rows) > 5 else []
+        # add experimental candidates with small sample size
+        exp_rows = []
+        for (p, cat_id), s in by_profile_cat.items():
+            if p != profile:
+                continue
+            if int(s["posts"]) < EXPERIMENT_MIN_POSTS or int(s["posts"]) >= min_posts:
+                continue
+            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
+            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
+            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
+            share = (int(s["posts"]) / b["posts"]) if b["posts"] else 0
+            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
+            exp_rows.append(
+                {
+                    "category_id": cat_id,
+                    "category_title": title_by_id.get(cat_id, cat_id),
+                    "posts": int(s["posts"]),
+                    "likes_avg": round(likes_avg, 2),
+                    "views_avg": round(views_avg, 2),
+                    "likes_lift": round(likes_lift, 2),
+                    "views_lift": round(views_lift, 2),
+                    "share": round(share, 3),
+                    "score": round(score, 3),
+                    "top_like_url": s.get("top_like_url", ""),
+                    "top_view_url": s.get("top_view_url", ""),
+                    "note": "low_sample",
+                }
+            )
+
+        # classify
+        scale = [x for x in rows if x["score"] >= SCALE_LIFT and x["share"] <= LOW_SHARE]
+        keep = [x for x in rows if x["score"] >= SCALE_LIFT and x["share"] > LOW_SHARE]
+        reduce = [x for x in rows if x["score"] <= REDUCE_LIFT and x["share"] >= HIGH_SHARE]
+        experiment = [x for x in rows if x["share"] <= LOW_SHARE and REDUCE_LIFT < x["score"] < SCALE_LIFT]
+        # plus low-sample candidates
+        experiment += [x for x in exp_rows if x["score"] >= 1.05 and x["share"] <= LOW_SHARE]
+
+        scale.sort(key=lambda x: (x["score"], -x["share"]), reverse=True)
+        keep.sort(key=lambda x: (x["score"], x["share"]), reverse=True)
+        reduce.sort(key=lambda x: (x["share"], -x["score"]), reverse=True)
+        experiment.sort(key=lambda x: (x["share"], x["score"]), reverse=True)
 
         per_profile[profile] = {
             "baseline_likes_avg": round(base_likes_avg, 2),
             "baseline_views_avg": round(base_views_avg, 2),
             "min_posts": min_posts,
-            "do_more": do_more,
-            "do_less": do_less,
+            "scale": scale[:5],
+            "keep": keep[:5],
+            "reduce": reduce[:5],
+            "experiment": experiment[:5],
+            "thresholds": {
+                "scale_lift": SCALE_LIFT,
+                "reduce_lift": REDUCE_LIFT,
+                "low_share": LOW_SHARE,
+                "high_share": HIGH_SHARE,
+                "experiment_min_posts": EXPERIMENT_MIN_POSTS,
+            },
         }
 
-        for x in do_more:
+        for x in scale[:5]:
             rec_rows.append(
                 [
                     profile,
@@ -2014,12 +2182,14 @@ def _build_recommendations(
                     x["likes_lift"],
                     x["views_avg"],
                     x["views_lift"],
-                    "do_more",
+                    x.get("share", ""),
+                    x.get("score", ""),
+                    "scale",
                     x["top_like_url"],
                     x["top_view_url"],
                 ]
             )
-        for x in do_less:
+        for x in reduce[:5]:
             rec_rows.append(
                 [
                     profile,
@@ -2030,7 +2200,9 @@ def _build_recommendations(
                     x["likes_lift"],
                     x["views_avg"],
                     x["views_lift"],
-                    "do_less",
+                    x.get("share", ""),
+                    x.get("score", ""),
+                    "reduce",
                     x["top_like_url"],
                     x["top_view_url"],
                 ]
@@ -2053,12 +2225,19 @@ def _write_recommendations_csv(path: Path, rows: list[list[Any]]) -> None:
                 "likes_lift",
                 "views_avg",
                 "views_lift",
+                "share",
+                "score",
                 "action",
                 "top_like_url",
                 "top_view_url",
             ]
         )
-        w.writerows(rows)
+        # backward-compat: if rows don't include share/score, pad them
+        for r in rows:
+            if len(r) == 11:
+                # insert share/score before action
+                r = r[:8] + ["", ""] + r[8:]
+            w.writerow(r)
 
 
 def _iter_months(start: date, end: date) -> list[str]:
@@ -2201,6 +2380,69 @@ def _write_trends_csv(path: Path, rows: list[list[Any]]) -> None:
         w.writerows(rows)
 
 
+def _build_cluster_recommendations_csv(clusters_for_report: dict[str, Any]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    per = clusters_for_report.get("recommendations_per_profile") or {}
+    for prof, d in per.items():
+        # always include best/worst/dominant for usefulness
+        for action in ("best", "worst"):
+            for x in d.get(action, []) or []:
+                rows.append(
+                    [
+                        prof,
+                        x.get("cluster_id"),
+                        x.get("label", ""),
+                        x.get("top_tokens", ""),
+                        x.get("posts"),
+                        x.get("share"),
+                        x.get("score"),
+                        x.get("likes_lift"),
+                        x.get("views_lift"),
+                        action,
+                    ]
+                )
+        dom = d.get("dominant")
+        if dom:
+            rows.append(
+                [
+                    prof,
+                    dom.get("cluster_id"),
+                    dom.get("label", ""),
+                    dom.get("top_tokens", ""),
+                    dom.get("posts"),
+                    dom.get("share"),
+                    dom.get("score"),
+                    dom.get("likes_lift"),
+                    dom.get("views_lift"),
+                    "dominant",
+                ]
+            )
+        for action in ("scale", "reduce", "keep", "experiment"):
+            for x in d.get(action, []) or []:
+                rows.append(
+                    [
+                        prof,
+                        x.get("cluster_id"),
+                        x.get("label", ""),
+                        x.get("top_tokens", ""),
+                        x.get("posts"),
+                        x.get("share"),
+                        x.get("score"),
+                        x.get("likes_lift"),
+                        x.get("views_lift"),
+                        action,
+                    ]
+                )
+    return rows
+
+
+def _write_cluster_recommendations_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["profile", "cluster_id", "cluster_label", "top_tokens", "posts_count", "share", "score", "likes_lift", "views_lift", "action"])
+        w.writerows(rows)
+
+
 def _write_html_report(
     *,
     output_path: Path,
@@ -2212,6 +2454,7 @@ def _write_html_report(
     clusters_csv: Path,
     categories_csv: Path,
     recommendations_csv: Path,
+    recommendations_clusters_csv: Path,
     trends_csv: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
@@ -2347,6 +2590,7 @@ def _write_html_report(
     rel_clusters = esc(clusters_csv.name)
     rel_categories = esc(categories_csv.name)
     rel_recs = esc(recommendations_csv.name)
+    rel_recs_clusters = esc(recommendations_clusters_csv.name)
     rel_trends = esc(trends_csv.name)
 
     doc = f"""<!doctype html>
@@ -2437,6 +2681,7 @@ def _write_html_report(
         <a class="pill" href="{rel_clusters}">Скачать clusters CSV</a>
         <a class="pill" href="{rel_categories}">Скачать categories CSV</a>
         <a class="pill" href="{rel_recs}">Скачать recommendations CSV</a>
+        <a class="pill" href="{rel_recs_clusters}">Скачать recommendations (clusters) CSV</a>
         <a class="pill" href="{rel_trends}">Скачать trends CSV</a>
       </div>
     </div>
@@ -2484,6 +2729,7 @@ def _write_html_report(
     {_topics_section_html(topics_for_report)}
     {_categories_section_html(categories_for_report)}
     {_recommendations_section_html(recommendations_for_report)}
+    {_cluster_recommendations_section_html(clusters_for_report)}
     {_trends_section_html(trends_for_report)}
     {_clusters_section_html(clusters_for_report)}
 
@@ -2880,7 +3126,7 @@ def _recommendations_section_html(recs: dict[str, Any]) -> str:
             lis.append(
                 "<li>"
                 f"<b>{esc(x.get('category_title'))}</b> "
-                f"(posts={esc(x.get('posts'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))}) "
+                f"(posts={esc(x.get('posts'))}, share={esc(x.get('share'))}, score={esc(x.get('score'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))}) "
                 f"{('<a href=\"'+esc(x.get('top_like_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top like</a>' if x.get('top_like_url') else '')} "
                 f"{('<a href=\"'+esc(x.get('top_view_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top view</a>' if x.get('top_view_url') else '')}"
                 "</li>"
@@ -2890,19 +3136,29 @@ def _recommendations_section_html(recs: dict[str, Any]) -> str:
     blocks = []
     for profile in sorted(per.keys()):
         p = per[profile]
+        th = p.get("thresholds") or {}
         blocks.append(
             f"""
             <details class="card" open>
               <summary class="card-title">Рекомендации: {esc(profile)}</summary>
               <div class="muted">Baseline: likes_avg={esc(p.get('baseline_likes_avg'))}, views_avg={esc(p.get('baseline_views_avg'))}. Минимум постов на категорию: {esc(min_posts)}.</div>
+              <div class="muted">Порог: scale score ≥ {esc(th.get('scale_lift'))} и доля ≤ {esc(th.get('low_share'))}. Reduce score ≤ {esc(th.get('reduce_lift'))} и доля ≥ {esc(th.get('high_share'))}.</div>
               <div class="grid" style="margin-top:12px">
                 <div class="card">
-                  <div class="card-title">Делать больше</div>
-                  {items("do_more", p.get("do_more") or [])}
+                  <div class="card-title">Масштабировать (работает и редко)</div>
+                  {items("scale", p.get("scale") or [])}
                 </div>
                 <div class="card">
-                  <div class="card-title">Делать меньше / переупаковать</div>
-                  {items("do_less", p.get("do_less") or [])}
+                  <div class="card-title">Сократить / перепаковать (плохо и часто)</div>
+                  {items("reduce", p.get("reduce") or [])}
+                </div>
+                <div class="card">
+                  <div class="card-title">Оставить (работает и уже часто)</div>
+                  {items("keep", p.get("keep") or [])}
+                </div>
+                <div class="card">
+                  <div class="card-title">Эксперимент (пока неясно)</div>
+                  {items("experiment", p.get("experiment") or [])}
                 </div>
               </div>
             </details>
@@ -2911,8 +3167,70 @@ def _recommendations_section_html(recs: dict[str, Any]) -> str:
 
     return (
         "<div class='card'>"
-        "<div class='card-title'>Рекомендации (что постить)</div>"
-        "<div class='muted'>Рекомендации строятся по lift: насколько категория лучше/хуже среднего по аккаунту (avg likes/views) при достаточной выборке.</div>"
+        "<div class='card-title'>Рекомендации (по категориям)</div>"
+        "<div class='muted'>Категории = человеко‑читаемые темы из taxonomy. Рекомендации строятся по score (комбинация likes_lift и views_lift) и доле категории в контенте. Если категорий мало — см. рекомендации по кластерам ниже.</div>"
+        "</div>"
+        + "".join(blocks)
+    )
+
+
+def _cluster_recommendations_section_html(clusters_for_report: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    per = clusters_for_report.get("recommendations_per_profile") or {}
+
+    def chips(raw: Any) -> str:
+        s = ("" if raw is None else str(raw)).strip()
+        if not s:
+            return ""
+        parts = [p.strip() for p in s.split(",") if p.strip()]
+        return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(p)}*</span>" for p in parts) + "</div>"
+
+    def list_items(arr: list[dict[str, Any]]) -> str:
+        if not arr:
+            return "<div class='muted'>Нет</div>"
+        lis = []
+        for x in arr:
+            label = (x.get("label") or "").strip()
+            lis.append(
+                "<li>"
+                f"<b>Cluster {esc(x.get('cluster_id'))}</b>"
+                + (f" — {esc(label)}" if label else "")
+                + f" (posts={esc(x.get('posts'))}, share={esc(x.get('share'))}, score={esc(x.get('score'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))})"
+                + chips(x.get("top_tokens"))
+                + "</li>"
+            )
+        return "<ul>" + "".join(lis) + "</ul>"
+
+    blocks = []
+    for profile in sorted(per.keys()):
+        p = per[profile]
+        th = p.get("thresholds") or {}
+        dominant = p.get("dominant")
+        blocks.append(
+            f"""
+            <details class="card">
+              <summary class="card-title">Рекомендации по кластерам: {esc(profile)}</summary>
+              <div class="muted">Кластеры = “умные темы” по совместной встречаемости. Порог: min_posts={esc(th.get('min_posts'))}, scale score≥{esc(th.get('scale'))} и share≤{esc(th.get('low_share'))}.</div>
+              {f"<div class='muted'>Доминирующий кластер: <b>Cluster {esc(dominant.get('cluster_id'))}</b> — share={esc(dominant.get('share'))}, score={esc(dominant.get('score'))}</div>" if dominant else ""}
+              <div class="grid" style="margin-top:12px">
+                <div class="card"><div class="card-title">Лучшие (top score)</div>{list_items(p.get("best") or [])}</div>
+                <div class="card"><div class="card-title">Худшие (low score)</div>{list_items(p.get("worst") or [])}</div>
+                <div class="card"><div class="card-title">Масштабировать</div>{list_items(p.get("scale") or [])}</div>
+                <div class="card"><div class="card-title">Сократить/перепаковать</div>{list_items(p.get("reduce") or [])}</div>
+                <div class="card"><div class="card-title">Оставить</div>{list_items(p.get("keep") or [])}</div>
+                <div class="card"><div class="card-title">Эксперимент</div>{list_items(p.get("experiment") or [])}</div>
+              </div>
+              <div class="footer">* токены — нормализованные основы (для склейки форм).</div>
+            </details>
+            """
+        )
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>Рекомендации (по кластерам)</div>"
+        "<div class='muted'>Это более “умные” рекомендации: даже если taxonomy не покрывает все темы, кластеры показывают реальные группы контента.</div>"
         "</div>"
         + "".join(blocks)
     )
