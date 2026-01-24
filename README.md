@@ -58,6 +58,7 @@ python3 ig_apify_scrape.py
 - `output/summary_<start>_to_<end>.csv` — сводка/анализ по аккаунтам за период
 - `output/topics_<start>_to_<end>.csv` — анализ тем (слова/хэштеги) и их лайки/просмотры
 - `output/clusters_<start>_to_<end>.csv` — “умные темы”: кластеры по совместной встречаемости в постах
+- `output/categories_<start>_to_<end>.csv` — “умные и понятные темы”: категории из `taxonomy.json`
 И HTML отчёт (локальная веб‑страница):
 - `output/report_<start>_to_<end>.html` — удобочитаемый отчёт с таблицами и графиками + ссылками на CSV
 

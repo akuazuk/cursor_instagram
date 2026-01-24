@@ -34,6 +34,7 @@ class Config:
     apify_base_url: str
     output_dir: Path
     db_path: Path
+    taxonomy_path: Path
     results_limit_per_type: int
     refresh_mode: str  # auto | always | never
     check_limit: int
@@ -728,6 +729,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
         topics_csv = cfg.output_dir / f"topics_{tag}.csv"
         clusters_csv = cfg.output_dir / f"clusters_{tag}.csv"
+        categories_csv = cfg.output_dir / f"categories_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -868,6 +870,10 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         clusters_rows, clusters_for_report = _build_clusters_analysis(rows)
         _write_clusters_csv(clusters_csv, clusters_rows)
 
+        taxonomy = _load_taxonomy(cfg.taxonomy_path)
+        categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
+        _write_categories_csv(categories_csv, categories_rows)
+
         _write_html_report(
             output_path=report_html,
             start_s=start_s,
@@ -876,17 +882,20 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             summary_csv=summary_csv,
             topics_csv=topics_csv,
             clusters_csv=clusters_csv,
+            categories_csv=categories_csv,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
             topics_for_report=topics_for_report,
             clusters_for_report=clusters_for_report,
+            categories_for_report=categories_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
         outputs[f"summary_{tag}"] = summary_csv
         outputs[f"topics_{tag}"] = topics_csv
         outputs[f"clusters_{tag}"] = clusters_csv
+        outputs[f"categories_{tag}"] = categories_csv
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -1658,6 +1667,163 @@ def _write_clusters_csv(path: Path, rows: list[list[Any]]) -> None:
             w.writerow(r)
 
 
+def _load_taxonomy(path: Path) -> dict[str, Any]:
+    """
+    taxonomy.json:
+      { "categories": [ { "id": "...", "title": "...", "keywords": [...] }, ... ] }
+    """
+    if not path.exists():
+        return {"categories": []}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"categories": []}
+
+    cats = raw.get("categories") if isinstance(raw, dict) else None
+    if not isinstance(cats, list):
+        return {"categories": []}
+
+    normalized = []
+    for c in cats:
+        if not isinstance(c, dict):
+            continue
+        cid = str(c.get("id") or "").strip()
+        title = str(c.get("title") or cid).strip() or cid
+        kws = c.get("keywords") or []
+        if not cid:
+            continue
+        nk = []
+        if isinstance(kws, list):
+            for k in kws:
+                kk = _normalize_token(str(k), is_hashtag=False)
+                if kk:
+                    nk.append(kk)
+        normalized.append({"id": cid, "title": title, "keywords": sorted(set(nk))})
+    return {"categories": normalized}
+
+
+def _assign_categories(tokens: set[str], taxonomy: dict[str, Any]) -> list[tuple[str, int]]:
+    """
+    Возвращает список (category_id, score) по количеству совпавших keywords.
+    """
+    cats = taxonomy.get("categories") or []
+    out: list[tuple[str, int]] = []
+    for c in cats:
+        kws = set(c.get("keywords") or [])
+        if not kws:
+            continue
+        score = len(tokens & kws)
+        if score > 0:
+            out.append((str(c.get("id")), score))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+
+def _build_categories_analysis(
+    item_rows: list[tuple[Any, ...]],
+    *,
+    taxonomy: dict[str, Any],
+) -> tuple[list[list[Any]], dict[str, Any]]:
+    """
+    Категории = человеческие темы из taxonomy.json.
+    """
+    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
+
+    # stats[(category_id)] = dict
+    stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"posts": 0, "profiles": set(), "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
+    per_profile: dict[str, dict[str, dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}))
+
+    for r in item_rows:
+        profile = str(r[0] or "")
+        likes_i = _to_int(r[7] if len(r) > 7 else None)
+        views_i = _to_int(r[9] if len(r) > 9 else None)
+        caption = str(r[10] or "")
+
+        hashtags, words = _extract_topics(caption)
+        tokens = set(hashtags) | set(words)
+        if not tokens:
+            continue
+        matches = _assign_categories(tokens, taxonomy)
+        if not matches:
+            continue
+        # берем top-1 категорию, чтобы статистика не раздувалась
+        cat_id = matches[0][0]
+
+        s = stats[cat_id]
+        s["posts"] += 1
+        s["profiles"].add(profile)
+        if likes_i is not None:
+            s["likes_sum"] += int(likes_i)
+            s["likes_n"] += 1
+        if views_i is not None:
+            s["views_sum"] += int(views_i)
+            s["views_n"] += 1
+
+        ps = per_profile[profile][cat_id]
+        ps["posts"] += 1
+        if likes_i is not None:
+            ps["likes_sum"] += int(likes_i)
+            ps["likes_n"] += 1
+        if views_i is not None:
+            ps["views_sum"] += int(views_i)
+            ps["views_n"] += 1
+
+    rows: list[list[Any]] = []
+    for cat_id, s in stats.items():
+        likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
+        views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+        rows.append(
+            [
+                cat_id,
+                title_by_id.get(cat_id, cat_id),
+                int(s["posts"]),
+                len(s["profiles"]),
+                int(s["likes_sum"]),
+                round(likes_avg, 2),
+                int(s["views_sum"]),
+                round(views_avg, 2),
+            ]
+        )
+
+    rows.sort(key=lambda r: int(r[2]), reverse=True)
+
+    per_profile_out: dict[str, Any] = {}
+    for prof, d in per_profile.items():
+        pr = []
+        for cat_id, s in d.items():
+            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
+            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+            pr.append(
+                [
+                    cat_id,
+                    title_by_id.get(cat_id, cat_id),
+                    int(s["posts"]),
+                    1,
+                    int(s["likes_sum"]),
+                    round(likes_avg, 2),
+                    int(s["views_sum"]),
+                    round(views_avg, 2),
+                ]
+            )
+        pr.sort(key=lambda r: float(r[5]), reverse=True)
+        per_profile_out[prof] = pr[:10]
+
+    report = {
+        "top_by_posts": rows[:12],
+        "top_by_likes_avg": sorted(rows, key=lambda r: float(r[5]), reverse=True)[:12],
+        "top_by_views_avg": sorted(rows, key=lambda r: float(r[7]), reverse=True)[:12],
+        "per_profile": per_profile_out,
+    }
+    return rows, report
+
+
+def _write_categories_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["category_id", "category_title", "posts_count", "profiles_count", "likes_sum", "likes_avg", "views_sum", "views_avg"])
+        w.writerows(rows)
+
+
 def _write_html_report(
     *,
     output_path: Path,
@@ -1667,11 +1833,13 @@ def _write_html_report(
     summary_csv: Path,
     topics_csv: Path,
     clusters_csv: Path,
+    categories_csv: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
     topics_for_report: dict[str, Any],
     clusters_for_report: dict[str, Any],
+    categories_for_report: dict[str, Any],
 ) -> None:
     """
     Генерирует удобочитаемый HTML отчёт (локальная веб‑страница / GitHub Pages).
@@ -1796,6 +1964,7 @@ def _write_html_report(
     rel_summary = esc(summary_csv.name)
     rel_topics = esc(topics_csv.name)
     rel_clusters = esc(clusters_csv.name)
+    rel_categories = esc(categories_csv.name)
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -1883,6 +2052,7 @@ def _write_html_report(
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
         <a class="pill" href="{rel_topics}">Скачать topics CSV</a>
         <a class="pill" href="{rel_clusters}">Скачать clusters CSV</a>
+        <a class="pill" href="{rel_categories}">Скачать categories CSV</a>
       </div>
     </div>
 
@@ -1927,6 +2097,7 @@ def _write_html_report(
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
     {_topics_section_html(topics_for_report)}
+    {_categories_section_html(categories_for_report)}
     {_clusters_section_html(clusters_for_report)}
 
     <div class="footer">
@@ -2135,6 +2306,81 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
     )
 
 
+def _categories_section_html(categories_for_report: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    def table(title: str, rows: list[list[Any]]) -> str:
+        trs = []
+        for r in rows:
+            # category_id, category_title, posts_count, profiles_count, likes_sum, likes_avg, views_sum, views_avg
+            trs.append(
+                "<tr>"
+                f"<td>{esc(r[1])}</td>"
+                f"<td class='num'>{esc(r[2])}</td>"
+                f"<td class='num'>{esc(r[3])}</td>"
+                f"<td class='num'>{esc(r[4])}</td>"
+                f"<td class='num'>{esc(r[5])}</td>"
+                f"<td class='num'>{esc(r[6])}</td>"
+                f"<td class='num'>{esc(r[7])}</td>"
+                "</tr>"
+            )
+        return f"""
+        <div class="card">
+          <div class="card-title">{esc(title)}</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>category</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {''.join(trs) if trs else '<tr><td colspan="7" class="muted">Нет данных</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        """
+
+    per_profile = categories_for_report.get("per_profile") or {}
+    per_blocks = []
+    for profile in sorted(per_profile.keys())[:6]:
+        rows = per_profile[profile]
+        per_blocks.append(
+            f"""
+            <details class="card">
+              <summary class="card-title">Категории по аккаунту: {esc(profile)}</summary>
+              <div class="grid" style="margin-top:12px">
+                {table("Топ категорий (avg likes)", rows)}
+              </div>
+            </details>
+            """
+        )
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>Категории (человеческие темы)</div>"
+        "<div class='muted'>Категории берутся из <code>taxonomy.json</code> (можно редактировать keywords). "
+        "Посты автоматически относятся к самой подходящей категории по совпадению ключевых слов.</div>"
+        "</div>"
+        "<div class='grid'>"
+        + table("Категории — топ по количеству постов", categories_for_report.get("top_by_posts") or [])
+        + table("Категории — топ по average likes", categories_for_report.get("top_by_likes_avg") or [])
+        + table("Категории — топ по average views", categories_for_report.get("top_by_views_avg") or [])
+        + "</div>"
+        + "<div style='margin-top:12px'>"
+        + "".join(per_blocks)
+        + "</div>"
+    )
+
+
 def load_config_from_env(args: argparse.Namespace) -> Config:
     load_dotenv()
     apify_token = (os.environ.get("APIFY_TOKEN") or "").strip()
@@ -2144,6 +2390,7 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     apify_base_url = (os.environ.get("APIFY_BASE_URL") or "https://api.apify.com").strip()
     output_dir = Path(os.environ.get("OUTPUT_DIR", "output")).expanduser()
     db_path = Path(os.environ.get("DB_PATH", "cache/instagram_apify.sqlite")).expanduser()
+    taxonomy_path = Path(os.environ.get("TAXONOMY_FILE", "taxonomy.json")).expanduser()
 
     refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
     if getattr(args, "update", False):
@@ -2156,6 +2403,7 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
         apify_base_url=apify_base_url,
         output_dir=output_dir,
         db_path=db_path,
+        taxonomy_path=taxonomy_path,
         results_limit_per_type=max(1, int(args.limit)),
         refresh_mode=refresh_mode,
         check_limit=max(1, int(getattr(args, "check_limit", 1) or 1)),
