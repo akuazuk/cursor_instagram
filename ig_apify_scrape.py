@@ -727,6 +727,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         items_csv = cfg.output_dir / f"items_{tag}.csv"
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
         topics_csv = cfg.output_dir / f"topics_{tag}.csv"
+        clusters_csv = cfg.output_dir / f"clusters_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -864,6 +865,9 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         topics_rows, topics_for_report = _build_topics_analysis(rows)
         _write_topics_csv(topics_csv, topics_rows)
 
+        clusters_rows, clusters_for_report = _build_clusters_analysis(rows)
+        _write_clusters_csv(clusters_csv, clusters_rows)
+
         _write_html_report(
             output_path=report_html,
             start_s=start_s,
@@ -871,15 +875,18 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             items_csv=items_csv,
             summary_csv=summary_csv,
             topics_csv=topics_csv,
+            clusters_csv=clusters_csv,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
             topics_for_report=topics_for_report,
+            clusters_for_report=clusters_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
         outputs[f"summary_{tag}"] = summary_csv
         outputs[f"topics_{tag}"] = topics_csv
+        outputs[f"clusters_{tag}"] = clusters_csv
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -1048,7 +1055,8 @@ def _extract_topics(caption: str) -> tuple[list[str], list[str]]:
         return [], []
 
     lower = text.lower()
-    hashtags = [m.group(1).lower() for m in _HASHTAG_RE.finditer(lower)]
+    hashtags = [_normalize_token(m.group(1), is_hashtag=True) for m in _HASHTAG_RE.finditer(lower)]
+    hashtags = [h for h in hashtags if h]
     words = []
     for m in _WORD_RE.finditer(lower):
         w = m.group(0).lower()
@@ -1058,8 +1066,75 @@ def _extract_topics(caption: str) -> tuple[list[str], list[str]]:
             continue
         if w.isdigit():
             continue
-        words.append(w)
+        nw = _normalize_token(w, is_hashtag=False)
+        if nw and nw not in _STOPWORDS:
+            words.append(nw)
     return hashtags, words
+
+
+def _normalize_token(token: str, *, is_hashtag: bool) -> str:
+    t = (token or "").strip().lower()
+    if not t:
+        return ""
+    t = t.replace("ё", "е")
+    t = t.strip("_-")
+    if not t:
+        return ""
+
+    # hashtags: оставляем как есть, только нормализуем разделители
+    if is_hashtag:
+        return t
+
+    # english light stemming
+    if re.fullmatch(r"[a-z0-9_]+", t or ""):
+        for suf in ("ing", "ed"):
+            if len(t) > 5 and t.endswith(suf):
+                t = t[: -len(suf)]
+                break
+        if len(t) > 4 and t.endswith("s"):
+            t = t[:-1]
+
+    # russian light stemming (очень грубо, но помогает группировать формы)
+    if re.search(r"[а-я]", t):
+        for suf in (
+            "иями",
+            "ями",
+            "ами",
+            "ого",
+            "ему",
+            "ому",
+            "ыми",
+            "ими",
+            "ая",
+            "яя",
+            "ое",
+            "ее",
+            "ые",
+            "ие",
+            "ый",
+            "ий",
+            "ой",
+            "ей",
+            "ам",
+            "ям",
+            "ах",
+            "ях",
+            "ом",
+            "ем",
+            "а",
+            "я",
+            "ы",
+            "и",
+            "о",
+            "е",
+            "у",
+            "ю",
+        ):
+            if len(t) > 4 and t.endswith(suf):
+                t = t[: -len(suf)]
+                break
+
+    return t
 
 
 def _build_topics_analysis(
@@ -1160,6 +1235,213 @@ def _write_topics_csv(path: Path, rows: list[list[Any]]) -> None:
             w.writerow(r)
 
 
+def _build_clusters_analysis(
+    item_rows: list[tuple[Any, ...]],
+    *,
+    min_token_posts: int = 6,
+    min_edge_cooccurrence: int = 4,
+    min_cluster_posts: int = 10,
+    top_n: int = 15,
+) -> tuple[list[list[Any]], dict[str, Any]]:
+    """
+    “Умные темы” = кластеры токенов, которые часто встречаются вместе в одном посте.
+
+    Возвращает:
+      - clusters_rows для CSV
+      - clusters_for_report с топами
+    """
+
+    # 1) Собираем tokens per post + частоты токенов
+    posts: list[dict[str, Any]] = []
+    token_freq: dict[str, int] = defaultdict(int)
+
+    for r in item_rows:
+        profile = str(r[0] or "")
+        url = str(r[5] or "")
+        likes_i = _to_int(r[7] if len(r) > 7 else None)
+        views_i = _to_int(r[9] if len(r) > 9 else None)
+        caption = str(r[10] or "")
+
+        hashtags, words = _extract_topics(caption)
+        tokens = set(hashtags) | set(words)
+        # отбрасываем слишком короткие/пустые
+        tokens = {t for t in tokens if t and len(t) >= 3 and t not in _STOPWORDS}
+
+        if not tokens:
+            continue
+        for t in tokens:
+            token_freq[t] += 1
+
+        posts.append({"profile": profile, "url": url, "likes": likes_i, "views": views_i, "tokens": tokens})
+
+    # 2) Фильтруем токены по частоте
+    vocab = {t for t, c in token_freq.items() if c >= min_token_posts}
+    if not vocab:
+        return [], {"min_cluster_posts": min_cluster_posts, "note": "not_enough_data"}
+
+    # 3) Считаем co-occurrence edges
+    edges: dict[tuple[str, str], int] = defaultdict(int)
+    for p in posts:
+        toks = sorted([t for t in p["tokens"] if t in vocab])
+        if len(toks) < 2:
+            continue
+        # ограничим размер, чтобы не взорваться на длинных текстах
+        toks = toks[:60]
+        for i in range(len(toks)):
+            for j in range(i + 1, len(toks)):
+                a, b = toks[i], toks[j]
+                edges[(a, b)] += 1
+
+    # 4) Строим граф по сильным ребрам и находим компоненты связности
+    adj: dict[str, set[str]] = defaultdict(set)
+    for (a, b), w in edges.items():
+        if w >= min_edge_cooccurrence:
+            adj[a].add(b)
+            adj[b].add(a)
+
+    visited: set[str] = set()
+    clusters: list[list[str]] = []
+
+    for t in vocab:
+        if t in visited:
+            continue
+        if t not in adj:
+            visited.add(t)
+            continue
+        stack = [t]
+        comp: list[str] = []
+        visited.add(t)
+        while stack:
+            x = stack.pop()
+            comp.append(x)
+            for y in adj.get(x, set()):
+                if y not in visited:
+                    visited.add(y)
+                    stack.append(y)
+        if len(comp) >= 2:
+            clusters.append(comp)
+
+    if not clusters:
+        return [], {"min_cluster_posts": min_cluster_posts, "note": "no_clusters"}
+
+    # 5) Назначаем каждый пост одному кластеру (по максимальному overlap)
+    token_to_cluster: dict[str, int] = {}
+    for idx, comp in enumerate(clusters, start=1):
+        for t in comp:
+            token_to_cluster[t] = idx
+
+    cluster_stats: dict[int, dict[str, Any]] = defaultdict(
+        lambda: {
+            "posts": 0,
+            "profiles": set(),
+            "likes_sum": 0,
+            "likes_n": 0,
+            "views_sum": 0,
+            "views_n": 0,
+            "top_like_url": "",
+            "top_like": None,
+            "top_view_url": "",
+            "top_view": None,
+        }
+    )
+
+    for p in posts:
+        # считаем overlap по кластерам
+        counts: dict[int, int] = defaultdict(int)
+        for t in p["tokens"]:
+            cid = token_to_cluster.get(t)
+            if cid:
+                counts[cid] += 1
+        if not counts:
+            continue
+        cid = max(counts.items(), key=lambda kv: kv[1])[0]
+
+        s = cluster_stats[cid]
+        s["posts"] += 1
+        s["profiles"].add(p["profile"])
+        if p["likes"] is not None:
+            s["likes_sum"] += int(p["likes"])
+            s["likes_n"] += 1
+            if s["top_like"] is None or int(p["likes"]) > int(s["top_like"]):
+                s["top_like"] = int(p["likes"])
+                s["top_like_url"] = p["url"]
+        if p["views"] is not None:
+            s["views_sum"] += int(p["views"])
+            s["views_n"] += 1
+            if s["top_view"] is None or int(p["views"]) > int(s["top_view"]):
+                s["top_view"] = int(p["views"])
+                s["top_view_url"] = p["url"]
+
+    # 6) Формируем CSV строки
+    clusters_rows: list[list[Any]] = []
+    for idx, comp in enumerate(clusters, start=1):
+        st = cluster_stats.get(idx)
+        posts_cnt = int(st["posts"]) if st else 0
+        if posts_cnt < min_cluster_posts:
+            continue
+        likes_sum = int(st["likes_sum"])
+        views_sum = int(st["views_sum"])
+        likes_avg = (likes_sum / st["likes_n"]) if st["likes_n"] else 0
+        views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
+
+        top_tokens = sorted(comp, key=lambda t: token_freq.get(t, 0), reverse=True)[:8]
+        clusters_rows.append(
+            [
+                idx,
+                posts_cnt,
+                len(st["profiles"]),
+                ",".join(top_tokens),
+                likes_sum,
+                round(likes_avg, 2),
+                views_sum,
+                round(views_avg, 2),
+                st.get("top_like_url", ""),
+                st.get("top_like", ""),
+                st.get("top_view_url", ""),
+                st.get("top_view", ""),
+            ]
+        )
+
+    # 7) Топы для отчета
+    def top(metric_idx: int) -> list[list[Any]]:
+        rows = list(clusters_rows)
+        rows.sort(key=lambda r: float(r[metric_idx] or 0), reverse=True)
+        return rows[:top_n]
+
+    clusters_for_report = {
+        "min_cluster_posts": min_cluster_posts,
+        "min_token_posts": min_token_posts,
+        "min_edge_cooccurrence": min_edge_cooccurrence,
+        "top_by_likes_avg": top(5),
+        "top_by_views_avg": top(7),
+        "top_by_posts": sorted(clusters_rows, key=lambda r: int(r[1]), reverse=True)[:top_n],
+    }
+    return clusters_rows, clusters_for_report
+
+
+def _write_clusters_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "cluster_id",
+                "posts_count",
+                "profiles_count",
+                "top_tokens",
+                "likes_sum",
+                "likes_avg",
+                "views_sum",
+                "views_avg",
+                "top_post_by_likes_url",
+                "top_post_by_likes",
+                "top_by_views_url",
+                "top_by_views",
+            ]
+        )
+        for r in sorted(rows, key=lambda x: int(x[0])):
+            w.writerow(r)
+
+
 def _write_html_report(
     *,
     output_path: Path,
@@ -1168,10 +1450,12 @@ def _write_html_report(
     items_csv: Path,
     summary_csv: Path,
     topics_csv: Path,
+    clusters_csv: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
     topics_for_report: dict[str, Any],
+    clusters_for_report: dict[str, Any],
 ) -> None:
     """
     Генерирует удобочитаемый HTML отчёт (локальная веб‑страница).
@@ -1295,6 +1579,7 @@ def _write_html_report(
     rel_items = esc(items_csv.name)
     rel_summary = esc(summary_csv.name)
     rel_topics = esc(topics_csv.name)
+    rel_clusters = esc(clusters_csv.name)
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -1375,6 +1660,7 @@ def _write_html_report(
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
         <a class="pill" href="{rel_topics}">Скачать topics CSV</a>
+        <a class="pill" href="{rel_clusters}">Скачать clusters CSV</a>
       </div>
     </div>
 
@@ -1419,6 +1705,7 @@ def _write_html_report(
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
     {_topics_section_html(topics_for_report)}
+    {_clusters_section_html(clusters_for_report)}
 
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
@@ -1483,6 +1770,79 @@ def _topics_section_html(topics_for_report: dict[str, Any]) -> str:
         + table("Темы (hashtags) — топ по average views", topics_for_report.get("top_hashtags_by_views_avg") or [])
         + table("Темы (слова) — топ по average likes", topics_for_report.get("top_words_by_likes_avg") or [])
         + table("Темы (слова) — топ по average views", topics_for_report.get("top_words_by_views_avg") or [])
+        + "</div>"
+    )
+
+
+def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    def link(u: Any) -> str:
+        uu = ("" if u is None else str(u)).strip()
+        if not uu:
+            return ""
+        return f'<a href="{esc(uu)}" target="_blank" rel="noopener noreferrer">{esc(uu)}</a>'
+
+    min_posts = int(clusters_for_report.get("min_cluster_posts") or 10)
+    min_edge = int(clusters_for_report.get("min_edge_cooccurrence") or 4)
+    min_tok = int(clusters_for_report.get("min_token_posts") or 6)
+
+    def table(title: str, rows: list[list[Any]]) -> str:
+        trs = []
+        for r in rows:
+            # cluster_id, posts_count, profiles_count, top_tokens, likes_sum, likes_avg, views_sum, views_avg, top_like_url, top_like, top_view_url, top_view
+            trs.append(
+                "<tr>"
+                f"<td class='mono'>{esc(r[0])}</td>"
+                f"<td>{esc(r[3])}</td>"
+                f"<td class='num'>{esc(r[1])}</td>"
+                f"<td class='num'>{esc(r[2])}</td>"
+                f"<td class='num'>{esc(r[4])}</td>"
+                f"<td class='num'>{esc(r[5])}</td>"
+                f"<td class='num'>{esc(r[6])}</td>"
+                f"<td class='num'>{esc(r[7])}</td>"
+                f"<td>{link(r[8])}</td>"
+                f"<td class='num'>{esc(r[9])}</td>"
+                f"<td>{link(r[10])}</td>"
+                f"<td class='num'>{esc(r[11])}</td>"
+                "</tr>"
+            )
+        return f"""
+        <div class="card">
+          <div class="card-title">{esc(title)}</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts={esc(min_tok)}, min_edge={esc(min_edge)}, min_cluster_posts={esc(min_posts)}.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                {''.join(trs) if trs else '<tr><td colspan="12" class="muted">Недостаточно данных</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        """
+
+    return (
+        "<div class='grid'>"
+        + table("Кластеры тем — топ по average likes", clusters_for_report.get("top_by_likes_avg") or [])
+        + table("Кластеры тем — топ по average views", clusters_for_report.get("top_by_views_avg") or [])
+        + table("Кластеры тем — топ по количеству постов", clusters_for_report.get("top_by_posts") or [])
         + "</div>"
     )
 

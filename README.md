@@ -57,6 +57,7 @@ python3 ig_apify_scrape.py
 - `output/items_<start>_to_<end>.csv` — все посты/рилсы всех аккаунтов за период
 - `output/summary_<start>_to_<end>.csv` — сводка/анализ по аккаунтам за период
 - `output/topics_<start>_to_<end>.csv` — анализ тем (слова/хэштеги) и их лайки/просмотры
+- `output/clusters_<start>_to_<end>.csv` — “умные темы”: кластеры по совместной встречаемости в постах
 И HTML отчёт (локальная веб‑страница):
 - `output/report_<start>_to_<end>.html` — удобочитаемый отчёт с таблицами и графиками + ссылками на CSV
 
