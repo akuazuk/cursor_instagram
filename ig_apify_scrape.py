@@ -730,6 +730,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         topics_csv = cfg.output_dir / f"topics_{tag}.csv"
         clusters_csv = cfg.output_dir / f"clusters_{tag}.csv"
         categories_csv = cfg.output_dir / f"categories_{tag}.csv"
+        recommendations_csv = cfg.output_dir / f"recommendations_{tag}.csv"
+        trends_csv = cfg.output_dir / f"trends_categories_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -875,6 +877,12 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
         _write_categories_csv(categories_csv, categories_rows)
 
+        recommendations_rows, recommendations_for_report = _build_recommendations(rows, taxonomy=taxonomy)
+        _write_recommendations_csv(recommendations_csv, recommendations_rows)
+
+        trends_rows, trends_for_report = _build_category_trends(rows, taxonomy=taxonomy, start_s=start_s, end_s=end_s)
+        _write_trends_csv(trends_csv, trends_rows)
+
         _write_html_report(
             output_path=report_html,
             start_s=start_s,
@@ -884,12 +892,16 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             topics_csv=topics_csv,
             clusters_csv=clusters_csv,
             categories_csv=categories_csv,
+            recommendations_csv=recommendations_csv,
+            trends_csv=trends_csv,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
             topics_for_report=topics_for_report,
             clusters_for_report=clusters_for_report,
             categories_for_report=categories_for_report,
+            recommendations_for_report=recommendations_for_report,
+            trends_for_report=trends_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
@@ -897,6 +909,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         outputs[f"topics_{tag}"] = topics_csv
         outputs[f"clusters_{tag}"] = clusters_csv
         outputs[f"categories_{tag}"] = categories_csv
+        outputs[f"recommendations_{tag}"] = recommendations_csv
+        outputs[f"trends_categories_{tag}"] = trends_csv
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -1893,6 +1907,300 @@ def _write_categories_csv(path: Path, rows: list[list[Any]]) -> None:
         w.writerows(rows)
 
 
+def _build_recommendations(
+    item_rows: list[tuple[Any, ...]],
+    *,
+    taxonomy: dict[str, Any],
+    min_posts: int = 8,
+) -> tuple[list[list[Any]], dict[str, Any]]:
+    """
+    Рекомендации по контенту: что делать больше/меньше по lift (vs baseline аккаунта).
+    """
+    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
+
+    baseline: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
+    by_profile_cat: dict[tuple[str, str], dict[str, Any]] = defaultdict(
+        lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "top_like": None, "top_like_url": "", "top_view": None, "top_view_url": ""}
+    )
+
+    for r in item_rows:
+        profile = str(r[0] or "")
+        url = str(r[5] or "")
+        likes = _to_int(r[7] if len(r) > 7 else None)
+        views = _to_int(r[9] if len(r) > 9 else None)
+        caption = str(r[10] or "")
+
+        b = baseline[profile]
+        b["posts"] += 1
+        if likes is not None:
+            b["likes_sum"] += int(likes)
+            b["likes_n"] += 1
+        if views is not None:
+            b["views_sum"] += int(views)
+            b["views_n"] += 1
+
+        hashtags, words = _extract_topics(caption)
+        tokens = set(hashtags) | set(words)
+        matches = _assign_categories(tokens, taxonomy) if tokens else []
+        if not matches:
+            continue
+        cat_id = matches[0][0]
+
+        s = by_profile_cat[(profile, cat_id)]
+        s["posts"] += 1
+        if likes is not None:
+            s["likes_sum"] += int(likes)
+            s["likes_n"] += 1
+            if s["top_like"] is None or int(likes) > int(s["top_like"]):
+                s["top_like"] = int(likes)
+                s["top_like_url"] = url
+        if views is not None:
+            s["views_sum"] += int(views)
+            s["views_n"] += 1
+            if s["top_view"] is None or int(views) > int(s["top_view"]):
+                s["top_view"] = int(views)
+                s["top_view_url"] = url
+
+    rec_rows: list[list[Any]] = []
+    per_profile: dict[str, Any] = {}
+
+    for profile, b in baseline.items():
+        base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
+        base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
+
+        rows = []
+        for (p, cat_id), s in by_profile_cat.items():
+            if p != profile or int(s["posts"]) < min_posts:
+                continue
+            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
+            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
+            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
+            rows.append(
+                {
+                    "category_id": cat_id,
+                    "category_title": title_by_id.get(cat_id, cat_id),
+                    "posts": int(s["posts"]),
+                    "likes_avg": round(likes_avg, 2),
+                    "views_avg": round(views_avg, 2),
+                    "likes_lift": round(likes_lift, 2),
+                    "views_lift": round(views_lift, 2),
+                    "top_like_url": s.get("top_like_url", ""),
+                    "top_view_url": s.get("top_view_url", ""),
+                }
+            )
+
+        # do more = top by (likes_lift + views_lift)
+        rows.sort(key=lambda x: float(x["likes_lift"]) + float(x["views_lift"]), reverse=True)
+        do_more = rows[:5]
+        do_less = list(reversed(rows[-5:])) if len(rows) > 5 else []
+
+        per_profile[profile] = {
+            "baseline_likes_avg": round(base_likes_avg, 2),
+            "baseline_views_avg": round(base_views_avg, 2),
+            "min_posts": min_posts,
+            "do_more": do_more,
+            "do_less": do_less,
+        }
+
+        for x in do_more:
+            rec_rows.append(
+                [
+                    profile,
+                    x["category_id"],
+                    x["category_title"],
+                    x["posts"],
+                    x["likes_avg"],
+                    x["likes_lift"],
+                    x["views_avg"],
+                    x["views_lift"],
+                    "do_more",
+                    x["top_like_url"],
+                    x["top_view_url"],
+                ]
+            )
+        for x in do_less:
+            rec_rows.append(
+                [
+                    profile,
+                    x["category_id"],
+                    x["category_title"],
+                    x["posts"],
+                    x["likes_avg"],
+                    x["likes_lift"],
+                    x["views_avg"],
+                    x["views_lift"],
+                    "do_less",
+                    x["top_like_url"],
+                    x["top_view_url"],
+                ]
+            )
+
+    report = {"per_profile": per_profile, "min_posts": min_posts}
+    return rec_rows, report
+
+
+def _write_recommendations_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "profile",
+                "category_id",
+                "category_title",
+                "posts_count",
+                "likes_avg",
+                "likes_lift",
+                "views_avg",
+                "views_lift",
+                "action",
+                "top_like_url",
+                "top_view_url",
+            ]
+        )
+        w.writerows(rows)
+
+
+def _iter_months(start: date, end: date) -> list[str]:
+    out = []
+    cur = date(start.year, start.month, 1)
+    while cur < end:
+        out.append(f"{cur.year:04d}-{cur.month:02d}")
+        if cur.month == 12:
+            cur = date(cur.year + 1, 1, 1)
+        else:
+            cur = date(cur.year, cur.month + 1, 1)
+    return out
+
+
+def _build_category_trends(
+    item_rows: list[tuple[Any, ...]],
+    *,
+    taxonomy: dict[str, Any],
+    start_s: str,
+    end_s: str,
+) -> tuple[list[list[Any]], dict[str, Any]]:
+    """
+    Тренды по месяцам: profile × month × category.
+    """
+    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
+    start = date.fromisoformat(start_s)
+    end = date.fromisoformat(end_s)
+    months = _iter_months(start, end)
+
+    # baseline per profile per month
+    baseline: dict[tuple[str, str], dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
+    stats: dict[tuple[str, str, str], dict[str, Any]] = defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
+
+    for r in item_rows:
+        profile = str(r[0] or "")
+        ts = str(r[4] or "")
+        likes = _to_int(r[7] if len(r) > 7 else None)
+        views = _to_int(r[9] if len(r) > 9 else None)
+        caption = str(r[10] or "")
+
+        try:
+            dt = _parse_iso_dt(ts)
+        except Exception:
+            continue
+        month = f"{dt.year:04d}-{dt.month:02d}"
+
+        b = baseline[(profile, month)]
+        b["posts"] += 1
+        if likes is not None:
+            b["likes_sum"] += int(likes)
+            b["likes_n"] += 1
+        if views is not None:
+            b["views_sum"] += int(views)
+            b["views_n"] += 1
+
+        hashtags, words = _extract_topics(caption)
+        tokens = set(hashtags) | set(words)
+        matches = _assign_categories(tokens, taxonomy) if tokens else []
+        if not matches:
+            continue
+        cat_id = matches[0][0]
+
+        s = stats[(profile, month, cat_id)]
+        s["posts"] += 1
+        if likes is not None:
+            s["likes_sum"] += int(likes)
+            s["likes_n"] += 1
+        if views is not None:
+            s["views_sum"] += int(views)
+            s["views_n"] += 1
+
+    rows: list[list[Any]] = []
+    # build per-profile monthly top categories for report
+    top_for_report: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    # Determine profiles and categories present
+    profiles = sorted({p for (p, _, _) in stats.keys()})
+
+    for profile in profiles:
+        for month in months:
+            b = baseline.get((profile, month)) or {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0}
+            base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
+            base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
+
+            # collect cats in this month
+            month_rows = []
+            for (p, m, cat_id), s in stats.items():
+                if p != profile or m != month:
+                    continue
+                likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
+                views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+                likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
+                views_lift = (views_avg / base_views_avg) if base_views_avg else 0
+                month_rows.append(
+                    {
+                        "category_id": cat_id,
+                        "category_title": title_by_id.get(cat_id, cat_id),
+                        "posts": int(s["posts"]),
+                        "likes_avg": round(likes_avg, 2),
+                        "views_avg": round(views_avg, 2),
+                        "likes_lift": round(likes_lift, 2),
+                        "views_lift": round(views_lift, 2),
+                    }
+                )
+
+                rows.append(
+                    [
+                        profile,
+                        month,
+                        cat_id,
+                        title_by_id.get(cat_id, cat_id),
+                        int(s["posts"]),
+                        round(likes_avg, 2),
+                        round(views_avg, 2),
+                        round(likes_lift, 2),
+                        round(views_lift, 2),
+                    ]
+                )
+
+            if month_rows:
+                month_rows.sort(key=lambda x: x["posts"], reverse=True)
+                top_for_report[profile].append(
+                    {
+                        "month": month,
+                        "top_category": month_rows[0]["category_title"],
+                        "posts": month_rows[0]["posts"],
+                        "likes_avg": month_rows[0]["likes_avg"],
+                        "views_avg": month_rows[0]["views_avg"],
+                    }
+                )
+
+    report = {"months": months, "per_profile": top_for_report}
+    return rows, report
+
+
+def _write_trends_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["profile", "month", "category_id", "category_title", "posts_count", "likes_avg", "views_avg", "likes_lift", "views_lift"])
+        w.writerows(rows)
+
+
 def _write_html_report(
     *,
     output_path: Path,
@@ -1903,12 +2211,16 @@ def _write_html_report(
     topics_csv: Path,
     clusters_csv: Path,
     categories_csv: Path,
+    recommendations_csv: Path,
+    trends_csv: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
     topics_for_report: dict[str, Any],
     clusters_for_report: dict[str, Any],
     categories_for_report: dict[str, Any],
+    recommendations_for_report: dict[str, Any],
+    trends_for_report: dict[str, Any],
 ) -> None:
     """
     Генерирует удобочитаемый HTML отчёт (локальная веб‑страница / GitHub Pages).
@@ -2034,6 +2346,8 @@ def _write_html_report(
     rel_topics = esc(topics_csv.name)
     rel_clusters = esc(clusters_csv.name)
     rel_categories = esc(categories_csv.name)
+    rel_recs = esc(recommendations_csv.name)
+    rel_trends = esc(trends_csv.name)
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -2122,6 +2436,8 @@ def _write_html_report(
         <a class="pill" href="{rel_topics}">Скачать topics CSV</a>
         <a class="pill" href="{rel_clusters}">Скачать clusters CSV</a>
         <a class="pill" href="{rel_categories}">Скачать categories CSV</a>
+        <a class="pill" href="{rel_recs}">Скачать recommendations CSV</a>
+        <a class="pill" href="{rel_trends}">Скачать trends CSV</a>
       </div>
     </div>
 
@@ -2167,6 +2483,8 @@ def _write_html_report(
 
     {_topics_section_html(topics_for_report)}
     {_categories_section_html(categories_for_report)}
+    {_recommendations_section_html(recommendations_for_report)}
+    {_trends_section_html(trends_for_report)}
     {_clusters_section_html(clusters_for_report)}
 
     <div class="footer">
@@ -2545,6 +2863,107 @@ def _categories_profile_table(rows: list[list[Any]]) -> str:
       </div>
     </div>
     """
+
+
+def _recommendations_section_html(recs: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    per = recs.get("per_profile") or {}
+    min_posts = int(recs.get("min_posts") or 8)
+
+    def items(title: str, arr: list[dict[str, Any]]) -> str:
+        if not arr:
+            return "<div class='muted'>Недостаточно данных</div>"
+        lis = []
+        for x in arr:
+            lis.append(
+                "<li>"
+                f"<b>{esc(x.get('category_title'))}</b> "
+                f"(posts={esc(x.get('posts'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))}) "
+                f"{('<a href=\"'+esc(x.get('top_like_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top like</a>' if x.get('top_like_url') else '')} "
+                f"{('<a href=\"'+esc(x.get('top_view_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top view</a>' if x.get('top_view_url') else '')}"
+                "</li>"
+            )
+        return "<ul>" + "".join(lis) + "</ul>"
+
+    blocks = []
+    for profile in sorted(per.keys()):
+        p = per[profile]
+        blocks.append(
+            f"""
+            <details class="card" open>
+              <summary class="card-title">Рекомендации: {esc(profile)}</summary>
+              <div class="muted">Baseline: likes_avg={esc(p.get('baseline_likes_avg'))}, views_avg={esc(p.get('baseline_views_avg'))}. Минимум постов на категорию: {esc(min_posts)}.</div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Делать больше</div>
+                  {items("do_more", p.get("do_more") or [])}
+                </div>
+                <div class="card">
+                  <div class="card-title">Делать меньше / переупаковать</div>
+                  {items("do_less", p.get("do_less") or [])}
+                </div>
+              </div>
+            </details>
+            """
+        )
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>Рекомендации (что постить)</div>"
+        "<div class='muted'>Рекомендации строятся по lift: насколько категория лучше/хуже среднего по аккаунту (avg likes/views) при достаточной выборке.</div>"
+        "</div>"
+        + "".join(blocks)
+    )
+
+
+def _trends_section_html(trends: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    months = trends.get("months") or []
+    per = trends.get("per_profile") or {}
+
+    def table(rows: list[dict[str, Any]]) -> str:
+        trs = []
+        for r in rows[-12:]:
+            trs.append(
+                "<tr>"
+                f"<td class='mono'>{esc(r.get('month'))}</td>"
+                f"<td>{esc(r.get('top_category'))}</td>"
+                f"<td class='num'>{esc(r.get('posts'))}</td>"
+                f"<td class='num'>{esc(r.get('likes_avg'))}</td>"
+                f"<td class='num'>{esc(r.get('views_avg'))}</td>"
+                "</tr>"
+            )
+        return (
+            "<div class='table-wrap'><table><thead><tr>"
+            "<th>month</th><th>top category</th><th class='num'>posts</th><th class='num'>likes_avg</th><th class='num'>views_avg</th>"
+            "</tr></thead><tbody>"
+            + ("".join(trs) if trs else "<tr><td colspan='5' class='muted'>Нет данных</td></tr>")
+            + "</tbody></table></div>"
+        )
+
+    blocks = []
+    for profile in sorted(per.keys()):
+        blocks.append(
+            f"""
+            <details class="card">
+              <summary class="card-title">Тренды по месяцам: {esc(profile)}</summary>
+              <div class="muted">Показываем самую частую категорию месяца и её средние метрики (последние 12 месяцев внутри периода).</div>
+              {table(per[profile])}
+            </details>
+            """
+        )
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>Тренды</div>"
+        f"<div class='muted'>Период разбит на месяцы ({esc(len(months))}): {esc(months[0] if months else '')} … {esc(months[-1] if months else '')}.</div>"
+        "</div>"
+        + "".join(blocks)
+    )
 
 
 def load_config_from_env(args: argparse.Namespace) -> Config:
