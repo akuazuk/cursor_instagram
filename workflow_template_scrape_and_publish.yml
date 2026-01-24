@@ -33,7 +33,7 @@ jobs:
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
-          python ig_apify_scrape.py --limit "${{ inputs.limit || '300' }}" --publish-dir docs --update
+          python ig_apify_scrape.py --limit "${{ inputs.limit || '2000' }}" --publish-dir docs --refresh always
 
       - name: Commit updated docs
         run: |

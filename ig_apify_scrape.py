@@ -5,13 +5,15 @@ import csv
 import html
 import json
 import os
+import re
 import sqlite3
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -33,7 +35,8 @@ class Config:
     output_dir: Path
     db_path: Path
     results_limit_per_type: int
-    skip_if_cached: bool
+    refresh_mode: str  # auto | always | never
+    check_limit: int
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -103,7 +106,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             views_count INTEGER,
             caption TEXT,
             raw_json TEXT,
-            inserted_at_utc TEXT NOT NULL
+            inserted_at_utc TEXT NOT NULL,
+            updated_at_utc TEXT
         )
         """
     )
@@ -115,12 +119,96 @@ def _init_db(conn: sqlite3.Connection) -> None:
             end_date TEXT NOT NULL,
             completed_at_utc TEXT,
             items_inserted INTEGER NOT NULL DEFAULT 0,
+            last_checked_at_utc TEXT,
+            last_remote_latest_ts_utc TEXT,
+            last_local_max_ts_utc TEXT,
             PRIMARY KEY (profile_url, start_date, end_date)
         )
         """
     )
+    _ensure_columns(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_profile_ts ON items(profile_url, timestamp_utc)")
     conn.commit()
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """
+    Лёгкая миграция SQLite (на случай существующей базы без новых колонок).
+    """
+
+    def cols(table: str) -> set[str]:
+        return {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+    items_cols = cols("items")
+    if "updated_at_utc" not in items_cols:
+        conn.execute("ALTER TABLE items ADD COLUMN updated_at_utc TEXT")
+
+    cache_cols = cols("profile_period_cache")
+    for col_def in [
+        "last_checked_at_utc TEXT",
+        "last_remote_latest_ts_utc TEXT",
+        "last_local_max_ts_utc TEXT",
+    ]:
+        name = col_def.split()[0]
+        if name not in cache_cols:
+            conn.execute(f"ALTER TABLE profile_period_cache ADD COLUMN {col_def}")
+
+    conn.commit()
+
+
+def _month_window_utc(d: date) -> tuple[date, date]:
+    start = d.replace(day=1)
+    # first day of next month
+    if start.month == 12:
+        end = date(start.year + 1, 1, 1)
+    else:
+        end = date(start.year, start.month + 1, 1)
+    return start, end
+
+
+def _resolve_period(args: argparse.Namespace) -> tuple[date, date]:
+    """
+    Возвращает (start, end) как даты (UTC), где end — end-exclusive.
+    Приоритет:
+      1) --start/--end
+      2) --period (this-month / last-month / last-30d)
+      3) default: this-month
+    """
+    env_start = (os.environ.get("START_DATE") or "").strip() or None
+    env_end = (os.environ.get("END_DATE") or "").strip() or None
+    env_period = (os.environ.get("PERIOD") or "").strip() or None
+
+    if args.start:
+        start = date.fromisoformat(args.start)
+        if args.end:
+            end = date.fromisoformat(args.end)
+        else:
+            end = (datetime.now(timezone.utc).date() + timedelta(days=1))
+        return start, end
+
+    if args.end:
+        # end задан, start нет — по умолчанию возьмём начало месяца end
+        end = date.fromisoformat(args.end)
+        start, _ = _month_window_utc(end - timedelta(days=1))
+        return start, end
+
+    if env_start:
+        start = date.fromisoformat(env_start)
+        end = date.fromisoformat(env_end) if env_end else (datetime.now(timezone.utc).date() + timedelta(days=1))
+        return start, end
+
+    today = datetime.now(timezone.utc).date()
+    period = (args.period or env_period or "this-month").strip().lower()
+    if period == "this-month":
+        return _month_window_utc(today)
+    if period == "last-month":
+        first_this, _ = _month_window_utc(today)
+        prev_last_day = first_this - timedelta(days=1)
+        return _month_window_utc(prev_last_day)
+    if period == "last-30d":
+        return today - timedelta(days=30), today + timedelta(days=1)
+
+    raise SystemExit("Неизвестный --period. Используй: this-month | last-month | last-30d")
 
 
 def _apify_request_json(
@@ -313,32 +401,49 @@ def load_targets(path: Path, default_start: Optional[date], default_end: Optiona
         raise SystemExit(f"Не найден файл targets: {path}")
 
     out: list[Target] = []
-    with path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        if not reader.fieldnames or "profile_url" not in reader.fieldnames:
-            raise SystemExit("targets.csv должен иметь колонку 'profile_url' (и желательно label,start,end)")
 
-        for row in reader:
-            raw_url = (row.get("profile_url") or "").strip()
-            if not raw_url:
-                continue
-            profile_url = _normalize_profile_url(raw_url)
-            label = (row.get("label") or "").strip() or _infer_handle(profile_url)
+    # TXT: по одной ссылке на строку (самый простой формат)
+    if path.suffix.lower() in {".txt", ".list"}:
+        if not default_start or not default_end:
+            raise SystemExit("Для targets.txt нужно задать период через --start/--end или --period.")
 
-            start_s = (row.get("start") or "").strip()
-            end_s = (row.get("end") or "").strip()
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                profile_url = _normalize_profile_url(s)
+                label = _infer_handle(profile_url)
+                out.append(Target(profile_url=profile_url, label=label, start=default_start, end=default_end))
 
-            start = date.fromisoformat(start_s) if start_s else default_start
-            end = date.fromisoformat(end_s) if end_s else default_end
-            if not start or not end:
-                raise SystemExit(
-                    f"Для {profile_url} не задан период. "
-                    "Укажите start/end в targets.csv или передайте --start/--end."
-                )
-            if end <= start:
-                raise SystemExit(f"Некорректный период для {profile_url}: end <= start ({start}..{end})")
+    # CSV: расширенный формат
+    else:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames or "profile_url" not in reader.fieldnames:
+                raise SystemExit("targets.csv должен иметь колонку 'profile_url' (и желательно label,start,end)")
 
-            out.append(Target(profile_url=profile_url, label=label, start=start, end=end))
+            for row in reader:
+                raw_url = (row.get("profile_url") or "").strip()
+                if not raw_url:
+                    continue
+                profile_url = _normalize_profile_url(raw_url)
+                label = (row.get("label") or "").strip() or _infer_handle(profile_url)
+
+                start_s = (row.get("start") or "").strip()
+                end_s = (row.get("end") or "").strip()
+
+                start = date.fromisoformat(start_s) if start_s else default_start
+                end = date.fromisoformat(end_s) if end_s else default_end
+                if not start or not end:
+                    raise SystemExit(
+                        f"Для {profile_url} не задан период. "
+                        "Укажи start/end в targets.csv или передай --start/--end/--period."
+                    )
+                if end <= start:
+                    raise SystemExit(f"Некорректный период для {profile_url}: end <= start ({start}..{end})")
+
+                out.append(Target(profile_url=profile_url, label=label, start=start, end=end))
 
     # дедуп по URL
     dedup: dict[tuple[str, date, date], Target] = {}
@@ -359,6 +464,85 @@ def is_cached_complete(conn: sqlite3.Connection, profile_url: str, start: date, 
     return bool(row and row[0])
 
 
+def _local_max_ts(conn: sqlite3.Connection, profile_url: str, start: date, end: date) -> Optional[datetime]:
+    row = conn.execute(
+        """
+        SELECT MAX(timestamp_utc)
+        FROM items
+        WHERE profile_url = ?
+          AND timestamp_utc >= ? AND timestamp_utc < ?
+        """,
+        (profile_url, f"{start.isoformat()}T00:00:00+00:00", f"{end.isoformat()}T00:00:00+00:00"),
+    ).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return _parse_iso_dt(str(row[0]))
+    except Exception:
+        return None
+
+
+def _remote_latest_ts(cfg: Config, profile_url: str, start: date, check_limit: int) -> Optional[datetime]:
+    """
+    Дешёвая проверка: запускаем actor с маленьким resultsLimit и берём max(timestamp)
+    среди полученных элементов (posts + reels).
+    """
+    only_newer_than = start.isoformat()
+    best: Optional[datetime] = None
+    for results_type in ("posts", "reels"):
+        run = _run_instagram_scraper(
+            profile_url=profile_url,
+            results_type=results_type,
+            results_limit=max(1, int(check_limit)),
+            only_newer_than_utc=only_newer_than,
+            cfg=cfg,
+        )
+        dataset_id = run.get("defaultDatasetId")
+        if not dataset_id:
+            continue
+        for raw in _apify_iter_dataset_items(cfg=cfg, dataset_id=str(dataset_id), page_limit=max(1, int(check_limit))):
+            ts_raw = raw.get("timestamp")
+            if not ts_raw:
+                continue
+            try:
+                ts = _parse_iso_dt(ts_raw)
+            except Exception:
+                continue
+            if best is None or ts > best:
+                best = ts
+    return best
+
+
+def _mark_checked(
+    conn: sqlite3.Connection,
+    profile_url: str,
+    start: date,
+    end: date,
+    remote_latest: Optional[datetime],
+    local_max: Optional[datetime],
+) -> None:
+    now = _utc_now().isoformat()
+    conn.execute(
+        """
+        INSERT INTO profile_period_cache(profile_url, start_date, end_date, last_checked_at_utc, last_remote_latest_ts_utc, last_local_max_ts_utc)
+        VALUES(?, ?, ?, ?, ?, ?)
+        ON CONFLICT(profile_url, start_date, end_date)
+        DO UPDATE SET last_checked_at_utc = excluded.last_checked_at_utc,
+                     last_remote_latest_ts_utc = excluded.last_remote_latest_ts_utc,
+                     last_local_max_ts_utc = excluded.last_local_max_ts_utc
+        """,
+        (
+            profile_url,
+            start.isoformat(),
+            end.isoformat(),
+            now,
+            (remote_latest.isoformat() if remote_latest else None),
+            (local_max.isoformat() if local_max else None),
+        ),
+    )
+    conn.commit()
+
+
 def mark_cached_complete(conn: sqlite3.Connection, profile_url: str, start: date, end: date, inserted: int) -> None:
     now = _utc_now().isoformat()
     conn.execute(
@@ -367,7 +551,7 @@ def mark_cached_complete(conn: sqlite3.Connection, profile_url: str, start: date
         VALUES(?, ?, ?, ?, ?)
         ON CONFLICT(profile_url, start_date, end_date)
         DO UPDATE SET completed_at_utc = excluded.completed_at_utc,
-                     items_inserted = items_inserted + excluded.items_inserted
+                     items_inserted = excluded.items_inserted
         """,
         (profile_url, start.isoformat(), end.isoformat(), now, int(inserted)),
     )
@@ -375,14 +559,40 @@ def mark_cached_complete(conn: sqlite3.Connection, profile_url: str, start: date
 
 
 def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> dict[str, Any]:
-    if cfg.skip_if_cached and is_cached_complete(conn, target.profile_url, target.start, target.end):
-        return {"profile_url": target.profile_url, "label": target.label, "skipped": True, "inserted": 0}
+    local_max = _local_max_ts(conn, target.profile_url, target.start, target.end)
+
+    # refresh logic
+    if cfg.refresh_mode == "never":
+        if is_cached_complete(conn, target.profile_url, target.start, target.end):
+            return {"profile_url": target.profile_url, "label": target.label, "skipped": True, "reason": "cached", "inserted": 0}
+
+    if cfg.refresh_mode == "auto":
+        # если нет локальных данных — скрапим
+        if local_max is not None and is_cached_complete(conn, target.profile_url, target.start, target.end):
+            remote_latest = _remote_latest_ts(cfg, target.profile_url, target.start, cfg.check_limit)
+            _mark_checked(conn, target.profile_url, target.start, target.end, remote_latest=remote_latest, local_max=local_max)
+            if remote_latest is None or remote_latest <= local_max:
+                return {
+                    "profile_url": target.profile_url,
+                    "label": target.label,
+                    "skipped": True,
+                    "reason": "no_new_posts",
+                    "local_max_ts_utc": (local_max.isoformat() if local_max else None),
+                    "remote_latest_ts_utc": (remote_latest.isoformat() if remote_latest else None),
+                    "inserted": 0,
+                }
+
+    # refresh_mode == always => всегда скрапим и обновляем метрики
+    if cfg.refresh_mode == "always":
+        remote_latest = _remote_latest_ts(cfg, target.profile_url, target.start, cfg.check_limit)
+        _mark_checked(conn, target.profile_url, target.start, target.end, remote_latest=remote_latest, local_max=local_max)
 
     start_dt = datetime(target.start.year, target.start.month, target.start.day, tzinfo=timezone.utc)
     end_dt = datetime(target.end.year, target.end.month, target.end.day, tzinfo=timezone.utc)
     only_newer_than = target.start.isoformat()  # YYYY-MM-DD
 
     inserted_total = 0
+    updated_total = 0
     fetched_total = 0
 
     for results_type in ("posts", "reels"):
@@ -422,15 +632,16 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
             content_kind = _content_kind_from_url(url) if url else "unknown"
             handle = _infer_handle(target.profile_url)
 
-            cur = conn.execute(
+            now = _utc_now().isoformat()
+            ins = conn.execute(
                 """
                 INSERT OR IGNORE INTO items(
                     key, profile_url, profile_label, profile_handle, content_kind,
                     url, short_code, media_type, timestamp_utc,
                     likes_count, comments_count, views_count,
-                    caption, raw_json, inserted_at_utc
+                    caption, raw_json, inserted_at_utc, updated_at_utc
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     key,
@@ -447,10 +658,49 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
                     views,
                     caption,
                     json.dumps(raw, ensure_ascii=False),
-                    _utc_now().isoformat(),
+                    now,  # inserted_at_utc
+                    now,  # updated_at_utc
                 ),
             )
-            inserted_total += int(cur.rowcount or 0)
+            if int(ins.rowcount or 0) == 1:
+                inserted_total += 1
+            else:
+                upd = conn.execute(
+                    """
+                    UPDATE items
+                    SET profile_label = ?,
+                        profile_handle = ?,
+                        content_kind = ?,
+                        url = ?,
+                        short_code = ?,
+                        media_type = ?,
+                        timestamp_utc = ?,
+                        likes_count = ?,
+                        comments_count = ?,
+                        views_count = ?,
+                        caption = ?,
+                        raw_json = ?,
+                        updated_at_utc = ?
+                    WHERE key = ?
+                    """,
+                    (
+                        target.label,
+                        handle,
+                        content_kind,
+                        url,
+                        short_code,
+                        media_type,
+                        ts.isoformat(),
+                        likes,
+                        comments,
+                        views,
+                        caption,
+                        json.dumps(raw, ensure_ascii=False),
+                        now,
+                        key,
+                    ),
+                )
+                updated_total += int(upd.rowcount or 0)
 
         conn.commit()
 
@@ -461,6 +711,7 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
         "skipped": False,
         "fetched": fetched_total,
         "inserted": inserted_total,
+        "updated": updated_total,
     }
 
 
@@ -475,6 +726,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         tag = f"{start_s}_to_{end_s}"
         items_csv = cfg.output_dir / f"items_{tag}.csv"
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
+        topics_csv = cfg.output_dir / f"topics_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -609,19 +861,25 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             )
             writer.writerows(summary_rows)
 
+        topics_rows, topics_for_report = _build_topics_analysis(rows)
+        _write_topics_csv(topics_csv, topics_rows)
+
         _write_html_report(
             output_path=report_html,
             start_s=start_s,
             end_s=end_s,
             items_csv=items_csv,
             summary_csv=summary_csv,
+            topics_csv=topics_csv,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
+            topics_for_report=topics_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
         outputs[f"summary_{tag}"] = summary_csv
+        outputs[f"topics_{tag}"] = topics_csv
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -670,7 +928,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
         + "<h2>CSV</h2>"
         + ("<ul>" + "".join(f"<li>{link(p)}</li>" for p in csvs) + "</ul>" if csvs else "<div class='muted'>Пока нет CSV</div>")
         + "<h2>Как обновить</h2>"
-        "<p>Локально: <code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --update</code></p>"
+        "<p>Локально: <code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></p>"
         "</body></html>\n",
         encoding="utf-8",
     )
@@ -732,6 +990,176 @@ def _top_items(
     return out
 
 
+_WORD_RE = re.compile(r"[0-9a-zA-Zа-яА-ЯёЁ_]{3,}")
+_HASHTAG_RE = re.compile(r"#([0-9a-zA-Zа-яА-ЯёЁ_]+)")
+
+# Короткий список стоп-слов (RU+EN), чтобы не засорять анализ
+_STOPWORDS = {
+    "и",
+    "в",
+    "во",
+    "на",
+    "по",
+    "к",
+    "ко",
+    "с",
+    "со",
+    "у",
+    "о",
+    "об",
+    "от",
+    "до",
+    "для",
+    "это",
+    "а",
+    "но",
+    "или",
+    "что",
+    "как",
+    "мы",
+    "вы",
+    "они",
+    "он",
+    "она",
+    "оно",
+    "ваш",
+    "ваша",
+    "ваши",
+    "наш",
+    "наша",
+    "наши",
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "this",
+    "that",
+    "you",
+    "your",
+    "our",
+    "are",
+}
+
+
+def _extract_topics(caption: str) -> tuple[list[str], list[str]]:
+    text = (caption or "").strip()
+    if not text:
+        return [], []
+
+    lower = text.lower()
+    hashtags = [m.group(1).lower() for m in _HASHTAG_RE.finditer(lower)]
+    words = []
+    for m in _WORD_RE.finditer(lower):
+        w = m.group(0).lower()
+        if w in _STOPWORDS:
+            continue
+        if w.startswith("http"):
+            continue
+        if w.isdigit():
+            continue
+        words.append(w)
+    return hashtags, words
+
+
+def _build_topics_analysis(
+    item_rows: list[tuple[Any, ...]],
+    *,
+    min_posts: int = 3,
+    top_n: int = 15,
+) -> tuple[list[list[Any]], dict[str, Any]]:
+    """
+    item_rows: строки из items выборки:
+      (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
+
+    Возвращает:
+      - topics_rows для CSV (все темы)
+      - topics_for_report (топы для HTML)
+    """
+    # stats[(type, token)] = dict
+    stats: dict[tuple[str, str], dict[str, Any]] = defaultdict(
+        lambda: {
+            "posts": 0,
+            "likes_sum": 0,
+            "likes_n": 0,
+            "views_sum": 0,
+            "views_n": 0,
+            "profiles": set(),
+        }
+    )
+
+    def add(token_type: str, token: str, profile: str, likes: Optional[int], views: Optional[int]) -> None:
+        s = stats[(token_type, token)]
+        s["posts"] += 1
+        s["profiles"].add(profile)
+        if likes is not None:
+            s["likes_sum"] += int(likes)
+            s["likes_n"] += 1
+        if views is not None:
+            s["views_sum"] += int(views)
+            s["views_n"] += 1
+
+    for r in item_rows:
+        profile = str(r[0] or "")
+        likes = r[7] if len(r) > 7 else None
+        views = r[9] if len(r) > 9 else None
+        caption = r[10] if len(r) > 10 else ""
+
+        likes_i = _to_int(likes)
+        views_i = _to_int(views)
+
+        hashtags, words = _extract_topics(str(caption or ""))
+        for h in set(hashtags):  # считаем 1 раз на пост
+            add("hashtag", h, profile, likes_i, views_i)
+        for w in set(words):
+            add("word", w, profile, likes_i, views_i)
+
+    topics_rows: list[list[Any]] = []
+    for (token_type, token), s in stats.items():
+        posts = int(s["posts"])
+        likes_sum = int(s["likes_sum"])
+        views_sum = int(s["views_sum"])
+        likes_avg = (likes_sum / s["likes_n"]) if s["likes_n"] else 0
+        views_avg = (views_sum / s["views_n"]) if s["views_n"] else 0
+        topics_rows.append(
+            [
+                token_type,
+                token,
+                posts,
+                len(s["profiles"]),
+                likes_sum,
+                round(likes_avg, 2),
+                views_sum,
+                round(views_avg, 2),
+            ]
+        )
+
+    # сортировки для отчёта
+    def top(token_type: str, metric_idx: int) -> list[list[Any]]:
+        # metric_idx: 5 likes_avg, 7 views_avg, 4 likes_sum, 6 views_sum
+        filtered = [row for row in topics_rows if row[0] == token_type and int(row[2]) >= min_posts]
+        filtered.sort(key=lambda r: float(r[metric_idx]), reverse=True)
+        return filtered[:top_n]
+
+    topics_for_report = {
+        "min_posts": min_posts,
+        "top_hashtags_by_likes_avg": top("hashtag", 5),
+        "top_hashtags_by_views_avg": top("hashtag", 7),
+        "top_words_by_likes_avg": top("word", 5),
+        "top_words_by_views_avg": top("word", 7),
+    }
+    return topics_rows, topics_for_report
+
+
+def _write_topics_csv(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["token_type", "token", "posts_count", "profiles_count", "likes_sum", "likes_avg", "views_sum", "views_avg"])
+        # стабильный порядок
+        for r in sorted(rows, key=lambda x: (str(x[0]), -int(x[2]), str(x[1]))):
+            w.writerow(r)
+
+
 def _write_html_report(
     *,
     output_path: Path,
@@ -739,9 +1167,11 @@ def _write_html_report(
     end_s: str,
     items_csv: Path,
     summary_csv: Path,
+    topics_csv: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
+    topics_for_report: dict[str, Any],
 ) -> None:
     """
     Генерирует удобочитаемый HTML отчёт (локальная веб‑страница).
@@ -864,6 +1294,7 @@ def _write_html_report(
 
     rel_items = esc(items_csv.name)
     rel_summary = esc(summary_csv.name)
+    rel_topics = esc(topics_csv.name)
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -943,6 +1374,7 @@ def _write_html_report(
       <div class="links">
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
+        <a class="pill" href="{rel_topics}">Скачать topics CSV</a>
       </div>
     </div>
 
@@ -986,6 +1418,8 @@ def _write_html_report(
     {top_table("Топ‑10 по лайкам (все аккаунты)", top_likes)}
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
+    {_topics_section_html(topics_for_report)}
+
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
     </div>
@@ -995,6 +1429,62 @@ def _write_html_report(
 """
 
     output_path.write_text(doc, encoding="utf-8")
+
+
+def _topics_section_html(topics_for_report: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    min_posts = int(topics_for_report.get("min_posts") or 3)
+
+    def table(title: str, rows: list[list[Any]]) -> str:
+        trs = []
+        for r in rows:
+            # token_type, token, posts_count, profiles_count, likes_sum, likes_avg, views_sum, views_avg
+            trs.append(
+                "<tr>"
+                f"<td>{esc(r[1])}</td>"
+                f"<td class='num'>{esc(r[2])}</td>"
+                f"<td class='num'>{esc(r[3])}</td>"
+                f"<td class='num'>{esc(r[4])}</td>"
+                f"<td class='num'>{esc(r[5])}</td>"
+                f"<td class='num'>{esc(r[6])}</td>"
+                f"<td class='num'>{esc(r[7])}</td>"
+                "</tr>"
+            )
+        return f"""
+        <div class="card">
+          <div class="card-title">{esc(title)}</div>
+          <div class="muted">Минимум постов для темы: {esc(min_posts)}</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {''.join(trs) if trs else '<tr><td colspan="7" class="muted">Недостаточно данных</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        """
+
+    return (
+        "<div class='grid'>"
+        + table("Темы (hashtags) — топ по average likes", topics_for_report.get("top_hashtags_by_likes_avg") or [])
+        + table("Темы (hashtags) — топ по average views", topics_for_report.get("top_hashtags_by_views_avg") or [])
+        + table("Темы (слова) — топ по average likes", topics_for_report.get("top_words_by_likes_avg") or [])
+        + table("Темы (слова) — топ по average views", topics_for_report.get("top_words_by_views_avg") or [])
+        + "</div>"
+    )
 
 
 def load_config_from_env(args: argparse.Namespace) -> Config:
@@ -1007,13 +1497,20 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     output_dir = Path(os.environ.get("OUTPUT_DIR", "output")).expanduser()
     db_path = Path(os.environ.get("DB_PATH", "cache/instagram_apify.sqlite")).expanduser()
 
+    refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
+    if getattr(args, "update", False):
+        refresh_mode = "always"
+    if refresh_mode not in {"auto", "always", "never"}:
+        raise SystemExit("Некорректный --refresh. Используй: auto | always | never")
+
     return Config(
         apify_token=apify_token,
         apify_base_url=apify_base_url,
         output_dir=output_dir,
         db_path=db_path,
         results_limit_per_type=max(1, int(args.limit)),
-        skip_if_cached=not bool(args.update),
+        refresh_mode=refresh_mode,
+        check_limit=max(1, int(getattr(args, "check_limit", 1) or 1)),
     )
 
 
@@ -1021,10 +1518,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Apify Instagram batch scraper: targets.csv + period + cache + summary"
     )
-    parser.add_argument("--targets", default=os.environ.get("TARGETS_FILE", "targets.csv"))
-    parser.add_argument("--start", default=None, help="YYYY-MM-DD (если не задано в targets.csv)")
-    parser.add_argument("--end", default=None, help="YYYY-MM-DD end-exclusive (если не задано в targets.csv)")
-    parser.add_argument("--limit", type=int, default=300, help="resultsLimit per type (posts/reels) per profile")
+    parser.add_argument("--targets", default=os.environ.get("TARGETS_FILE", "targets.txt"))
+    parser.add_argument("--start", default=None, help="YYYY-MM-DD (UTC)")
+    parser.add_argument("--end", default=None, help="YYYY-MM-DD end-exclusive (UTC)")
+    parser.add_argument("--period", default=None, help="this-month | last-month | last-30d (если --start/--end не заданы)")
+    parser.add_argument("--limit", type=int, default=2000, help="resultsLimit per type (posts/reels) per profile")
+    parser.add_argument("--refresh", default="auto", help="auto | always | never (по умолчанию auto)")
+    parser.add_argument("--check-limit", dest="check_limit", type=int, default=1, help="Сколько последних постов брать для проверки новых (по умолчанию 1)")
     parser.add_argument(
         "--publish-dir",
         default=None,
@@ -1034,17 +1534,16 @@ def main() -> int:
     parser.add_argument(
         "--update",
         action="store_true",
-        help="Не пропускать кэш: перезапустить Apify даже если период уже помечен как скрапнутый",
+        help="(устарело) то же, что --refresh always",
     )
     args = parser.parse_args()
 
-    default_start = date.fromisoformat(args.start) if args.start else None
-    default_end = date.fromisoformat(args.end) if args.end else None
+    default_start, default_end = _resolve_period(args)
 
     cfg = load_config_from_env(args)
     targets = load_targets(Path(args.targets), default_start=default_start, default_end=default_end)
     if not targets:
-        raise SystemExit("targets.csv пустой — добавь profile_url строки.")
+        raise SystemExit("targets файл пустой — добавь профили.")
 
     conn = _connect_db(cfg.db_path)
     try:
