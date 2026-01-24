@@ -864,13 +864,14 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             )
             writer.writerows(summary_rows)
 
+        taxonomy = _load_taxonomy(cfg.taxonomy_path)
+
         topics_rows, topics_for_report = _build_topics_analysis(rows)
         _write_topics_csv(topics_csv, topics_rows)
 
-        clusters_rows, clusters_for_report = _build_clusters_analysis(rows)
+        clusters_rows, clusters_for_report = _build_clusters_analysis(rows, taxonomy=taxonomy)
         _write_clusters_csv(clusters_csv, clusters_rows)
 
-        taxonomy = _load_taxonomy(cfg.taxonomy_path)
         categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
         _write_categories_csv(categories_csv, categories_rows)
 
@@ -1407,6 +1408,7 @@ def _build_clusters_analysis(
     min_edge_cooccurrence: int = 4,
     min_cluster_posts: int = 10,
     top_n: int = 15,
+    taxonomy: Optional[dict[str, Any]] = None,
 ) -> tuple[list[list[Any]], dict[str, Any]]:
     """
     “Умные темы” = кластеры токенов, которые часто встречаются вместе в одном посте.
@@ -1489,6 +1491,10 @@ def _build_clusters_analysis(
     if not clusters:
         return [], {"min_cluster_posts": min_cluster_posts, "note": "no_clusters"}
 
+    title_by_id = {}
+    if taxonomy:
+        title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
+
     # 5) Назначаем каждый пост одному кластеру (по максимальному overlap)
     token_to_cluster: dict[str, int] = {}
     for idx, comp in enumerate(clusters, start=1):
@@ -1507,6 +1513,8 @@ def _build_clusters_analysis(
             "top_like": None,
             "top_view_url": "",
             "top_view": None,
+            "top_likes": [],
+            "top_views": [],
         }
     )
 
@@ -1534,12 +1542,14 @@ def _build_clusters_analysis(
             if s["top_like"] is None or int(p["likes"]) > int(s["top_like"]):
                 s["top_like"] = int(p["likes"])
                 s["top_like_url"] = p["url"]
+            _push_top_post(s["top_likes"], p["profile"], p["url"], int(p["likes"]), None, key="likes")
         if p["views"] is not None:
             s["views_sum"] += int(p["views"])
             s["views_n"] += 1
             if s["top_view"] is None or int(p["views"]) > int(s["top_view"]):
                 s["top_view"] = int(p["views"])
                 s["top_view_url"] = p["url"]
+            _push_top_post(s["top_views"], p["profile"], p["url"], None, int(p["views"]), key="views")
 
         pp = cluster_profile_stats[(cid, p["profile"])]
         pp["posts"] += 1
@@ -1563,6 +1573,15 @@ def _build_clusters_analysis(
         views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
 
         top_tokens = sorted(comp, key=lambda t: token_freq.get(t, 0), reverse=True)[:8]
+
+        # label cluster by taxonomy (optional)
+        cat_id = ""
+        cat_title = ""
+        if taxonomy:
+            matches = _assign_categories(set(comp), taxonomy)
+            if matches:
+                cat_id = matches[0][0]
+                cat_title = title_by_id.get(cat_id, cat_id)
         clusters_rows.append(
             [
                 idx,
@@ -1577,6 +1596,8 @@ def _build_clusters_analysis(
                 st.get("top_like", ""),
                 st.get("top_view_url", ""),
                 st.get("top_view", ""),
+                cat_id,
+                cat_title,
             ]
         )
 
@@ -1594,7 +1615,15 @@ def _build_clusters_analysis(
         "top_by_views_avg": top(7),
         "top_by_posts": sorted(clusters_rows, key=lambda r: int(r[1]), reverse=True)[:top_n],
         "per_profile": {},
+        "examples_by_cluster": {},
     }
+
+    # examples for report (top posts per cluster)
+    for cid, st in cluster_stats.items():
+        clusters_for_report["examples_by_cluster"][str(cid)] = {
+            "top_likes": st.get("top_likes", [])[:3],
+            "top_views": st.get("top_views", [])[:3],
+        }
 
     # per-profile top clusters
     # строим массив (profile -> list rows with same schema as clusters_rows but without global top links)
@@ -1661,10 +1690,24 @@ def _write_clusters_csv(path: Path, rows: list[list[Any]]) -> None:
                 "top_post_by_likes",
                 "top_by_views_url",
                 "top_by_views",
+                "category_id",
+                "category_title",
             ]
         )
         for r in sorted(rows, key=lambda x: int(x[0])):
             w.writerow(r)
+
+
+def _push_top_post(lst: list[dict[str, Any]], profile: str, url: str, likes: Optional[int], views: Optional[int], *, key: str, k: int = 3) -> None:
+    """
+    Храним top-K примеров (для HTML), без caption чтобы не раздувать.
+    """
+    value = likes if key == "likes" else views
+    if value is None:
+        return
+    lst.append({"profile": profile, "url": url, "value": int(value)})
+    lst.sort(key=lambda x: int(x["value"]), reverse=True)
+    del lst[k:]
 
 
 def _load_taxonomy(path: Path) -> dict[str, Any]:
@@ -1729,15 +1772,32 @@ def _build_categories_analysis(
     """
     title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
 
+    # baselines per profile (for lift)
+    baseline: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
+
     # stats[(category_id)] = dict
-    stats: dict[str, dict[str, Any]] = defaultdict(lambda: {"posts": 0, "profiles": set(), "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
-    per_profile: dict[str, dict[str, dict[str, Any]]] = defaultdict(lambda: defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}))
+    stats: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"posts": 0, "profiles": set(), "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "top_likes": [], "top_views": []}
+    )
+    per_profile: dict[str, dict[str, dict[str, Any]]] = defaultdict(
+        lambda: defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
+    )
 
     for r in item_rows:
         profile = str(r[0] or "")
+        url = str(r[5] or "")
         likes_i = _to_int(r[7] if len(r) > 7 else None)
         views_i = _to_int(r[9] if len(r) > 9 else None)
         caption = str(r[10] or "")
+
+        # update baseline
+        b = baseline[profile]
+        if likes_i is not None:
+            b["likes_sum"] += int(likes_i)
+            b["likes_n"] += 1
+        if views_i is not None:
+            b["views_sum"] += int(views_i)
+            b["views_n"] += 1
 
         hashtags, words = _extract_topics(caption)
         tokens = set(hashtags) | set(words)
@@ -1755,9 +1815,11 @@ def _build_categories_analysis(
         if likes_i is not None:
             s["likes_sum"] += int(likes_i)
             s["likes_n"] += 1
+            _push_top_post(s["top_likes"], profile, url, int(likes_i), None, key="likes")
         if views_i is not None:
             s["views_sum"] += int(views_i)
             s["views_n"] += 1
+            _push_top_post(s["top_views"], profile, url, None, int(views_i), key="views")
 
         ps = per_profile[profile][cat_id]
         ps["posts"] += 1
@@ -1789,10 +1851,14 @@ def _build_categories_analysis(
 
     per_profile_out: dict[str, Any] = {}
     for prof, d in per_profile.items():
+        base_likes_avg = (baseline[prof]["likes_sum"] / baseline[prof]["likes_n"]) if baseline[prof]["likes_n"] else 0
+        base_views_avg = (baseline[prof]["views_sum"] / baseline[prof]["views_n"]) if baseline[prof]["views_n"] else 0
         pr = []
         for cat_id, s in d.items():
             likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
             views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
+            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
+            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
             pr.append(
                 [
                     cat_id,
@@ -1801,8 +1867,10 @@ def _build_categories_analysis(
                     1,
                     int(s["likes_sum"]),
                     round(likes_avg, 2),
+                    round(likes_lift, 2),
                     int(s["views_sum"]),
                     round(views_avg, 2),
+                    round(views_lift, 2),
                 ]
             )
         pr.sort(key=lambda r: float(r[5]), reverse=True)
@@ -1813,6 +1881,7 @@ def _build_categories_analysis(
         "top_by_likes_avg": sorted(rows, key=lambda r: float(r[5]), reverse=True)[:12],
         "top_by_views_avg": sorted(rows, key=lambda r: float(r[7]), reverse=True)[:12],
         "per_profile": per_profile_out,
+        "examples_by_category": {cat_id: {"top_likes": s.get("top_likes", [])[:3], "top_views": s.get("top_views", [])[:3]} for cat_id, s in stats.items()},
     }
     return rows, report
 
@@ -2222,6 +2291,23 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(p)}*</span>" for p in parts) + "</div>"
 
+    examples = clusters_for_report.get("examples_by_cluster") or {}
+
+    def ex_links(cluster_id: Any) -> str:
+        ex = examples.get(str(cluster_id)) or {}
+        tl = ex.get("top_likes") or []
+        tv = ex.get("top_views") or []
+        if not tl and not tv:
+            return ""
+        def li(items, label):
+            if not items:
+                return ""
+            return "<div class='muted' style='margin-top:8px'>" + label + ":</div>" + "<ul>" + "".join(
+                f"<li><a href='{html.escape(i['url'])}' target='_blank' rel='noopener noreferrer'>{html.escape(i['profile'])}</a> — <span class='mono'>{i['value']}</span></li>"
+                for i in items
+            ) + "</ul>"
+        return "<div>" + li(tl, "Топ по лайкам") + li(tv, "Топ по просмотрам") + "</div>"
+
     def table(title: str, rows: list[list[Any]]) -> str:
         trs = []
         for r in rows:
@@ -2293,7 +2379,8 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
         "<div class='card'>"
         "<div class='card-title'>Умные темы (кластеры)</div>"
         "<div class='muted'>Мы объединяем слова/хэштеги в кластеры по совместной встречаемости в постах. "
-        "Так получается не один “слово‑триггер”, а цельная тема. В таблицах показаны топ‑токены кластера.</div>"
+        "Дальше пытаемся дать кластеру человеческое имя через <code>taxonomy.json</code> (если совпало). "
+        "В таблицах показаны топ‑токены кластера (это нормализованные основы, помечены *).</div>"
         "</div>"
         "<div class='grid'>"
         + table("Кластеры — топ по average likes", clusters_for_report.get("top_by_likes_avg") or [])
@@ -2301,6 +2388,13 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
         + table("Кластеры — топ по количеству постов", clusters_for_report.get("top_by_posts") or [])
         + "</div>"
         + "<div style='margin-top:12px'>"
+        + "<details class='card'><summary class='card-title'>Примеры постов (по кластерам)</summary>"
+        + "<div class='muted'>Для каждого кластера показываем 3 лучших поста по лайкам и по просмотрам (если есть).</div>"
+        + "".join(
+            f"<details class='card' style='margin-top:10px'><summary class='card-title'>Cluster {esc(r[0])} — {esc(r[13] if len(r)>13 else '')}</summary>{ex_links(r[0])}</details>"
+            for r in (clusters_for_report.get("top_by_posts") or [])[:8]
+        )
+        + "</details>"
         + "".join(per_blocks)
         + "</div>"
     )
@@ -2309,6 +2403,23 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
 def _categories_section_html(categories_for_report: dict[str, Any]) -> str:
     def esc(s: Any) -> str:
         return html.escape("" if s is None else str(s))
+
+    examples = categories_for_report.get("examples_by_category") or {}
+
+    def ex_links(cat_id: str) -> str:
+        ex = examples.get(cat_id) or {}
+        tl = ex.get("top_likes") or []
+        tv = ex.get("top_views") or []
+        if not tl and not tv:
+            return ""
+        def li(items, label):
+            if not items:
+                return ""
+            return "<div class='muted' style='margin-top:8px'>" + label + ":</div>" + "<ul>" + "".join(
+                f"<li><a href='{html.escape(i['url'])}' target='_blank' rel='noopener noreferrer'>{html.escape(i['profile'])}</a> — <span class='mono'>{i['value']}</span></li>"
+                for i in items
+            ) + "</ul>"
+        return "<div>" + li(tl, "Топ по лайкам") + li(tv, "Топ по просмотрам") + "</div>"
 
     def table(title: str, rows: list[list[Any]]) -> str:
         trs = []
@@ -2358,7 +2469,7 @@ def _categories_section_html(categories_for_report: dict[str, Any]) -> str:
             <details class="card">
               <summary class="card-title">Категории по аккаунту: {esc(profile)}</summary>
               <div class="grid" style="margin-top:12px">
-                {table("Топ категорий (avg likes)", rows)}
+                {_categories_profile_table(rows)}
               </div>
             </details>
             """
@@ -2376,9 +2487,64 @@ def _categories_section_html(categories_for_report: dict[str, Any]) -> str:
         + table("Категории — топ по average views", categories_for_report.get("top_by_views_avg") or [])
         + "</div>"
         + "<div style='margin-top:12px'>"
+        + "<details class='card'><summary class='card-title'>Примеры постов (по категориям)</summary>"
+        + "<div class='muted'>Для каждой категории показываем 3 лучших поста по лайкам и по просмотрам (если есть).</div>"
+        + "".join(
+            f"<details class='card' style='margin-top:10px'><summary class='card-title'>{esc(r[1])}</summary>{ex_links(str(r[0]))}</details>"
+            for r in (categories_for_report.get("top_by_posts") or [])[:8]
+        )
+        + "</details>"
         + "".join(per_blocks)
         + "</div>"
     )
+
+
+def _categories_profile_table(rows: list[list[Any]]) -> str:
+    """
+    rows schema:
+      [cat_id, title, posts, 1, likes_sum, likes_avg, likes_lift, views_sum, views_avg, views_lift]
+    """
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    trs = []
+    for r in rows:
+        # fallback for older rows
+        if len(r) < 10:
+            continue
+        trs.append(
+            "<tr>"
+            f"<td>{esc(r[1])}</td>"
+            f"<td class='num'>{esc(r[2])}</td>"
+            f"<td class='num'>{esc(r[5])}</td>"
+            f"<td class='num'>{esc('x'+str(r[6]))}</td>"
+            f"<td class='num'>{esc(r[8])}</td>"
+            f"<td class='num'>{esc('x'+str(r[9]))}</td>"
+            "</tr>"
+        )
+    return f"""
+    <div class="card">
+      <div class="card-title">Топ категорий (с lift)</div>
+      <div class="muted">Lift = во сколько раз категория лучше среднего по аккаунту (avg likes/views).</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>category</th>
+              <th class="num">posts</th>
+              <th class="num">likes_avg</th>
+              <th class="num">likes_lift</th>
+              <th class="num">views_avg</th>
+              <th class="num">views_lift</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(trs) if trs else '<tr><td colspan="6" class="muted">Недостаточно данных</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
 
 
 def load_config_from_env(args: argparse.Namespace) -> Config:
