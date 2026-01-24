@@ -899,44 +899,161 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
     """
     publish_dir.mkdir(parents=True, exist_ok=True)
 
-    # копируем только то, что существует
-    published_files: list[Path] = []
+    # Копируем свежие артефакты (если есть)
     for _, p in outputs.items():
         if not p.exists():
             continue
-        dest = publish_dir / p.name
-        dest.write_bytes(p.read_bytes())
-        published_files.append(dest)
+        (publish_dir / p.name).write_bytes(p.read_bytes())
 
-    # строим index с ссылками на report_*.html + csv
-    reports = sorted([p for p in published_files if p.name.startswith("report_") and p.suffix == ".html"])
-    csvs = sorted([p for p in published_files if p.suffix.lower() == ".csv"])
+    # Индекс строим по ВСЕМ файлам в publish_dir (чтобы сохранялась история)
+    all_files = list(publish_dir.glob("*"))
+    reports = sorted([p for p in all_files if p.name.startswith("report_") and p.suffix == ".html"])
+    csvs = sorted([p for p in all_files if p.suffix.lower() == ".csv"])
 
     def esc(s: str) -> str:
         return html.escape(s)
 
-    def link(p: Path) -> str:
-        return f'<a href="{esc(p.name)}">{esc(p.name)}</a>'
+    def href(name: str) -> str:
+        return esc(name)
+
+    def period_from(name: str) -> str:
+        # report_YYYY-MM-DD_to_YYYY-MM-DD.html
+        m = re.match(r"^[a-z_]+_(\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})\.(?:html|csv)$", name)
+        return m.group(1) if m else "unknown"
+
+    # Группируем CSV по периоду
+    csv_by_period: dict[str, list[Path]] = defaultdict(list)
+    for p in csvs:
+        csv_by_period[period_from(p.name)].append(p)
+
+    # Карточки отчётов по периодам
+    cards_html = []
+    for rep in sorted(reports, key=lambda p: p.name, reverse=True):
+        per = period_from(rep.name)
+        csv_list = csv_by_period.get(per, [])
+
+        def csv_link(p: Path) -> str:
+            return f'<a class="chip" href="{href(p.name)}">{esc(p.name.replace(per + "_", ""))}</a>'
+
+        cards_html.append(
+            f"""
+            <div class="card">
+              <div class="card-top">
+                <div>
+                  <div class="card-title">Период</div>
+                  <div class="card-period">{esc(per.replace("_to_", " → "))}</div>
+                </div>
+                <a class="btn" href="{href(rep.name)}">Открыть отчёт</a>
+              </div>
+              <div class="muted">Файлы данных:</div>
+              <div class="chips">
+                {''.join(csv_link(p) for p in csv_list) if csv_list else '<span class="muted">CSV не найден</span>'}
+              </div>
+            </div>
+            """
+        )
 
     idx = publish_dir / "index.html"
     idx.write_text(
-        "<!doctype html>\n"
-        '<html lang="ru"><head><meta charset="utf-8" />'
-        '<meta name="viewport" content="width=device-width, initial-scale=1" />'
-        "<title>Instagram reports</title>"
-        "<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:920px;margin:24px auto;padding:0 16px}"
-        "h1{margin:0 0 8px} .muted{color:#666} ul{line-height:1.7}"
-        "code{background:#f3f3f3;padding:2px 6px;border-radius:6px}</style>"
-        "</head><body>"
-        "<h1>Instagram reports</h1>"
-        '<div class="muted">Сгенерировано скрапером на базе <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.</div>'
-        "<h2>Отчёты</h2>"
-        + ("<ul>" + "".join(f"<li>{link(p)}</li>" for p in reports) + "</ul>" if reports else "<div class='muted'>Пока нет report_*.html</div>")
-        + "<h2>CSV</h2>"
-        + ("<ul>" + "".join(f"<li>{link(p)}</li>" for p in csvs) + "</ul>" if csvs else "<div class='muted'>Пока нет CSV</div>")
-        + "<h2>Как обновить</h2>"
-        "<p>Локально: <code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></p>"
-        "</body></html>\n",
+        f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instagram reports</title>
+  <style>
+    :root {{
+      --bg: #0b1220;
+      --card: #111a2e;
+      --text: #e9eefc;
+      --muted: #9fb0d0;
+      --grid: rgba(255,255,255,0.08);
+      --accent: #7aa2ff;
+      --btn: #4f7dff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    }}
+    body {{
+      margin: 0; padding: 24px;
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,0.25), transparent 60%),
+                  radial-gradient(1200px 800px at 90% 10%, rgba(79,125,255,0.18), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }}
+    .wrap {{ max-width: 1100px; margin: 0 auto; }}
+    a {{ color: var(--accent); text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
+    .title {{ font-size: 24px; font-weight: 800; margin: 0; }}
+    .sub {{ color: var(--muted); margin-top: 6px; line-height: 1.4; }}
+    .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }}
+    .card {{
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 30%), var(--card);
+      border: 1px solid var(--grid);
+      border-radius: 16px;
+      padding: 16px;
+    }}
+    .card-top {{ display:flex; align-items:flex-start; justify-content:space-between; gap: 10px; }}
+    .card-title {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .card-period {{ font-family: var(--mono); font-size: 14px; margin-top: 6px; }}
+    .muted {{ color: var(--muted); font-size: 13px; margin-top: 12px; }}
+    .btn {{
+      display:inline-flex; align-items:center; justify-content:center;
+      background: linear-gradient(90deg, var(--btn), rgba(122,162,255,0.9));
+      color: white; border: 0; border-radius: 999px;
+      padding: 10px 12px; font-weight: 700; font-size: 13px;
+      text-decoration: none;
+      white-space: nowrap;
+    }}
+    .btn:hover {{ text-decoration: none; filter: brightness(1.05); }}
+    .chips {{ display:flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
+    .chip {{
+      display:inline-flex; align-items:center;
+      border: 1px solid var(--grid);
+      background: rgba(255,255,255,0.03);
+      padding: 6px 10px; border-radius: 999px;
+      font-size: 13px;
+    }}
+    .howto {{
+      margin-top: 18px;
+      border: 1px dashed var(--grid);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+    }}
+    code {{
+      font-family: var(--mono);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--grid);
+      padding: 2px 6px;
+      border-radius: 8px;
+    }}
+    @media (max-width: 980px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Instagram reports</h1>
+    <div class="sub">
+      Статический отчёт (GitHub Pages). Данные собраны через
+      <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
+    </div>
+
+    <div class="grid">
+      {''.join(cards_html) if cards_html else '<div class="card"><div class="muted">Пока нет отчётов. Сгенерируй docs/ через --publish-dir.</div></div>'}
+    </div>
+
+    <div class="howto">
+      <div class="card-title">Как обновить</div>
+      <div class="sub">Локально (перескрапить и обновить docs):</div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></div>
+      <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto</code></div>
+    </div>
+  </div>
+</body>
+</html>
+""",
         encoding="utf-8",
     )
     return idx
@@ -1163,6 +1280,12 @@ def _build_topics_analysis(
         }
     )
 
+    per_profile: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(
+        lambda: defaultdict(
+            lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}
+        )
+    )
+
     def add(token_type: str, token: str, profile: str, likes: Optional[int], views: Optional[int]) -> None:
         s = stats[(token_type, token)]
         s["posts"] += 1
@@ -1173,6 +1296,15 @@ def _build_topics_analysis(
         if views is not None:
             s["views_sum"] += int(views)
             s["views_n"] += 1
+
+        pp = per_profile[profile][(token_type, token)]
+        pp["posts"] += 1
+        if likes is not None:
+            pp["likes_sum"] += int(likes)
+            pp["likes_n"] += 1
+        if views is not None:
+            pp["views_sum"] += int(views)
+            pp["views_n"] += 1
 
     for r in item_rows:
         profile = str(r[0] or "")
@@ -1222,7 +1354,31 @@ def _build_topics_analysis(
         "top_hashtags_by_views_avg": top("hashtag", 7),
         "top_words_by_likes_avg": top("word", 5),
         "top_words_by_views_avg": top("word", 7),
+        "per_profile": {},
     }
+
+    # per-profile top topics (порог меньше, чтобы было информативно)
+    for profile, pstats in per_profile.items():
+        rows: list[list[Any]] = []
+        for (token_type, token), s in pstats.items():
+            posts = int(s["posts"])
+            likes_sum = int(s["likes_sum"])
+            views_sum = int(s["views_sum"])
+            likes_avg = (likes_sum / s["likes_n"]) if s["likes_n"] else 0
+            views_avg = (views_sum / s["views_n"]) if s["views_n"] else 0
+            rows.append([token_type, token, posts, 1, likes_sum, round(likes_avg, 2), views_sum, round(views_avg, 2)])
+
+        def top_p(tt: str, metric_idx: int) -> list[list[Any]]:
+            rr = [r for r in rows if r[0] == tt and int(r[2]) >= 2]
+            rr.sort(key=lambda r: float(r[metric_idx]), reverse=True)
+            return rr[:10]
+
+        topics_for_report["per_profile"][profile] = {
+            "top_hashtags_by_likes_avg": top_p("hashtag", 5),
+            "top_hashtags_by_views_avg": top_p("hashtag", 7),
+            "top_words_by_likes_avg": top_p("word", 5),
+            "top_words_by_views_avg": top_p("word", 7),
+        }
     return topics_rows, topics_for_report
 
 
@@ -1345,6 +1501,10 @@ def _build_clusters_analysis(
         }
     )
 
+    cluster_profile_stats: dict[tuple[int, str], dict[str, Any]] = defaultdict(
+        lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}
+    )
+
     for p in posts:
         # считаем overlap по кластерам
         counts: dict[int, int] = defaultdict(int)
@@ -1371,6 +1531,15 @@ def _build_clusters_analysis(
             if s["top_view"] is None or int(p["views"]) > int(s["top_view"]):
                 s["top_view"] = int(p["views"])
                 s["top_view_url"] = p["url"]
+
+        pp = cluster_profile_stats[(cid, p["profile"])]
+        pp["posts"] += 1
+        if p["likes"] is not None:
+            pp["likes_sum"] += int(p["likes"])
+            pp["likes_n"] += 1
+        if p["views"] is not None:
+            pp["views_sum"] += int(p["views"])
+            pp["views_n"] += 1
 
     # 6) Формируем CSV строки
     clusters_rows: list[list[Any]] = []
@@ -1415,7 +1584,54 @@ def _build_clusters_analysis(
         "top_by_likes_avg": top(5),
         "top_by_views_avg": top(7),
         "top_by_posts": sorted(clusters_rows, key=lambda r: int(r[1]), reverse=True)[:top_n],
+        "per_profile": {},
     }
+
+    # per-profile top clusters
+    # строим массив (profile -> list rows with same schema as clusters_rows but without global top links)
+    profiles = sorted({p["profile"] for p in posts if p.get("profile")})
+    # quick lookup top_tokens per cluster_id
+    top_tokens_by_cluster: dict[int, str] = {}
+    for r in clusters_rows:
+        try:
+            top_tokens_by_cluster[int(r[0])] = str(r[3])
+        except Exception:
+            continue
+
+    for prof in profiles:
+        prof_rows: list[list[Any]] = []
+        for (cid, p), st in cluster_profile_stats.items():
+            if p != prof:
+                continue
+            if int(st["posts"]) < 5:
+                continue
+            likes_sum = int(st["likes_sum"])
+            views_sum = int(st["views_sum"])
+            likes_avg = (likes_sum / st["likes_n"]) if st["likes_n"] else 0
+            views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
+            prof_rows.append(
+                [
+                    cid,
+                    int(st["posts"]),
+                    1,
+                    top_tokens_by_cluster.get(cid, ""),
+                    likes_sum,
+                    round(likes_avg, 2),
+                    views_sum,
+                    round(views_avg, 2),
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+
+        prof_rows.sort(key=lambda r: float(r[5]), reverse=True)
+        clusters_for_report["per_profile"][prof] = {
+            "top_by_likes_avg": prof_rows[:8],
+            "top_by_views_avg": sorted(prof_rows, key=lambda r: float(r[7]), reverse=True)[:8],
+        }
+
     return clusters_rows, clusters_for_report
 
 
@@ -1458,8 +1674,8 @@ def _write_html_report(
     clusters_for_report: dict[str, Any],
 ) -> None:
     """
-    Генерирует удобочитаемый HTML отчёт (локальная веб‑страница).
-    Без внешних зависимостей и без JS — только таблицы + простые bar‑графики.
+    Генерирует удобочитаемый HTML отчёт (локальная веб‑страница / GitHub Pages).
+    Без внешних зависимостей: CSS + немного семантики (details/summary).
     """
 
     def esc(s: Any) -> str:
@@ -1634,6 +1850,7 @@ def _write_html_report(
     table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
     th, td {{ border-bottom: 1px solid var(--grid); padding: 9px 10px; vertical-align: top; }}
     th {{ text-align: left; color: var(--muted); font-weight: 600; }}
+    tbody tr:hover {{ background: rgba(255,255,255,0.03); }}
     td.num, th.num {{ text-align: right; font-family: var(--mono); }}
     .mono {{ font-family: var(--mono); font-size: 12px; white-space: nowrap; }}
     .caption {{ max-width: 420px; color: rgba(233,238,252,0.92); }}
@@ -1646,6 +1863,10 @@ def _write_html_report(
       font-size: 13px;
     }}
     .footer {{ margin-top: 18px; color: var(--muted); font-size: 12px; }}
+    details.card > summary {{ cursor: pointer; list-style: none; }}
+    details.card > summary::-webkit-details-marker {{ display: none; }}
+    .chips {{ display:flex; flex-wrap:wrap; gap: 8px; margin-top: 4px; }}
+    .chip {{ display:inline-flex; align-items:center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--grid); background: rgba(255,255,255,0.03); font-size: 12px; }}
     @media (max-width: 980px) {{ .grid {{ grid-template-columns: 1fr; }} .bar-row {{ grid-template-columns: 120px 1fr 80px; }} }}
   </style>
 </head>
@@ -1655,6 +1876,7 @@ def _write_html_report(
       <div>
         <div class="title">Instagram report</div>
         <div class="subtitle">Период: <span class="mono">{esc(start_s)} → {esc(end_s)}</span> (end-exclusive, UTC)</div>
+        <div class="subtitle">Что внутри: KPI по аккаунтам → топ‑посты → темы по тексту → “умные темы” (кластеры).</div>
       </div>
       <div class="links">
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
@@ -1724,13 +1946,19 @@ def _topics_section_html(topics_for_report: dict[str, Any]) -> str:
 
     min_posts = int(topics_for_report.get("min_posts") or 3)
 
+    def fmt_topic(token_type: str, token: str) -> str:
+        if token_type == "hashtag":
+            return "#" + token
+        # слова: показываем как “стем”
+        return token + "*"
+
     def table(title: str, rows: list[list[Any]]) -> str:
         trs = []
         for r in rows:
             # token_type, token, posts_count, profiles_count, likes_sum, likes_avg, views_sum, views_avg
             trs.append(
                 "<tr>"
-                f"<td>{esc(r[1])}</td>"
+                f"<td>{esc(fmt_topic(str(r[0]), str(r[1])))}</td>"
                 f"<td class='num'>{esc(r[2])}</td>"
                 f"<td class='num'>{esc(r[3])}</td>"
                 f"<td class='num'>{esc(r[4])}</td>"
@@ -1764,12 +1992,40 @@ def _topics_section_html(topics_for_report: dict[str, Any]) -> str:
         </div>
         """
 
+    per_profile = topics_for_report.get("per_profile") or {}
+    per_blocks = []
+    # ограничим: покажем до 6 профилей, чтобы не раздувать страницу
+    for profile in sorted(per_profile.keys())[:6]:
+        p = per_profile[profile]
+        per_blocks.append(
+            f"""
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: {esc(profile)}</summary>
+              <div class="grid" style="margin-top:12px">
+                {table("Hashtags — top avg likes", p.get("top_hashtags_by_likes_avg") or [])}
+                {table("Hashtags — top avg views", p.get("top_hashtags_by_views_avg") or [])}
+                {table("Words — top avg likes", p.get("top_words_by_likes_avg") or [])}
+                {table("Words — top avg views", p.get("top_words_by_views_avg") or [])}
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            """
+        )
+
     return (
+        "<div class='card'>"
+        "<div class='card-title'>Темы по тексту</div>"
+        "<div class='muted'>Мы извлекаем хэштеги (#...) и слова из описаний, нормализуем и считаем средние лайки/просмотры. "
+        "Звёздочка (*) у слова означает, что это нормализованная основа.</div>"
+        "</div>"
         "<div class='grid'>"
-        + table("Темы (hashtags) — топ по average likes", topics_for_report.get("top_hashtags_by_likes_avg") or [])
-        + table("Темы (hashtags) — топ по average views", topics_for_report.get("top_hashtags_by_views_avg") or [])
-        + table("Темы (слова) — топ по average likes", topics_for_report.get("top_words_by_likes_avg") or [])
-        + table("Темы (слова) — топ по average views", topics_for_report.get("top_words_by_views_avg") or [])
+        + table("Hashtags — топ по average likes", topics_for_report.get("top_hashtags_by_likes_avg") or [])
+        + table("Hashtags — топ по average views", topics_for_report.get("top_hashtags_by_views_avg") or [])
+        + table("Words — топ по average likes", topics_for_report.get("top_words_by_likes_avg") or [])
+        + table("Words — топ по average views", topics_for_report.get("top_words_by_views_avg") or [])
+        + "</div>"
+        + "<div style='margin-top:12px'>"
+        + "".join(per_blocks)
         + "</div>"
     )
 
@@ -1788,6 +2044,13 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
     min_edge = int(clusters_for_report.get("min_edge_cooccurrence") or 4)
     min_tok = int(clusters_for_report.get("min_token_posts") or 6)
 
+    def chips(s: Any) -> str:
+        raw = ("" if s is None else str(s)).strip()
+        if not raw:
+            return ""
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(p)}*</span>" for p in parts) + "</div>"
+
     def table(title: str, rows: list[list[Any]]) -> str:
         trs = []
         for r in rows:
@@ -1795,7 +2058,7 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
             trs.append(
                 "<tr>"
                 f"<td class='mono'>{esc(r[0])}</td>"
-                f"<td>{esc(r[3])}</td>"
+                f"<td>{chips(r[3])}</td>"
                 f"<td class='num'>{esc(r[1])}</td>"
                 f"<td class='num'>{esc(r[2])}</td>"
                 f"<td class='num'>{esc(r[4])}</td>"
@@ -1838,11 +2101,36 @@ def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
         </div>
         """
 
+    per_profile = clusters_for_report.get("per_profile") or {}
+    per_blocks = []
+    for profile in sorted(per_profile.keys())[:6]:
+        p = per_profile[profile]
+        per_blocks.append(
+            f"""
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: {esc(profile)}</summary>
+              <div class="grid" style="margin-top:12px">
+                {table("Топ кластеров по avg likes", p.get("top_by_likes_avg") or [])}
+                {table("Топ кластеров по avg views", p.get("top_by_views_avg") or [])}
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            """
+        )
+
     return (
+        "<div class='card'>"
+        "<div class='card-title'>Умные темы (кластеры)</div>"
+        "<div class='muted'>Мы объединяем слова/хэштеги в кластеры по совместной встречаемости в постах. "
+        "Так получается не один “слово‑триггер”, а цельная тема. В таблицах показаны топ‑токены кластера.</div>"
+        "</div>"
         "<div class='grid'>"
-        + table("Кластеры тем — топ по average likes", clusters_for_report.get("top_by_likes_avg") or [])
-        + table("Кластеры тем — топ по average views", clusters_for_report.get("top_by_views_avg") or [])
-        + table("Кластеры тем — топ по количеству постов", clusters_for_report.get("top_by_posts") or [])
+        + table("Кластеры — топ по average likes", clusters_for_report.get("top_by_likes_avg") or [])
+        + table("Кластеры — топ по average views", clusters_for_report.get("top_by_views_avg") or [])
+        + table("Кластеры — топ по количеству постов", clusters_for_report.get("top_by_posts") or [])
+        + "</div>"
+        + "<div style='margin-top:12px'>"
+        + "".join(per_blocks)
         + "</div>"
     )
 

@@ -51,6 +51,7 @@
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid var(--grid); padding: 9px 10px; vertical-align: top; }
     th { text-align: left; color: var(--muted); font-weight: 600; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
     td.num, th.num { text-align: right; font-family: var(--mono); }
     .mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
     .caption { max-width: 420px; color: rgba(233,238,252,0.92); }
@@ -63,6 +64,10 @@
       font-size: 13px;
     }
     .footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
+    details.card > summary { cursor: pointer; list-style: none; }
+    details.card > summary::-webkit-details-marker { display: none; }
+    .chips { display:flex; flex-wrap:wrap; gap: 8px; margin-top: 4px; }
+    .chip { display:inline-flex; align-items:center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--grid); background: rgba(255,255,255,0.03); font-size: 12px; }
     @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 120px 1fr 80px; } }
   </style>
 </head>
@@ -72,6 +77,7 @@
       <div>
         <div class="title">Instagram report</div>
         <div class="subtitle">Период: <span class="mono">2025-01-01 → 2026-02-01</span> (end-exclusive, UTC)</div>
+        <div class="subtitle">Что внутри: KPI по аккаунтам → топ‑посты → темы по тексту → “умные темы” (кластеры).</div>
       </div>
       <div class="links">
         <a class="pill" href="items_2025-01-01_to_2026-02-01.csv">Скачать items CSV</a>
@@ -337,9 +343,9 @@
         </div>
         
 
-    <div class='grid'>
+    <div class='card'><div class='card-title'>Темы по тексту</div><div class='muted'>Мы извлекаем хэштеги (#...) и слова из описаний, нормализуем и считаем средние лайки/просмотры. Звёздочка (*) у слова означает, что это нормализованная основа.</div></div><div class='grid'>
         <div class="card">
-          <div class="card-title">Темы (hashtags) — топ по average likes</div>
+          <div class="card-title">Hashtags — топ по average likes</div>
           <div class="muted">Минимум постов для темы: 3</div>
           <div class="table-wrap">
             <table>
@@ -355,14 +361,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr><tr><td>офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr><tr><td>гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr>
+                <tr><td>#диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>#эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>#лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>#клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>#новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>#каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr><tr><td>#офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>#мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>#кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>#неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr><tr><td>#гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">Темы (hashtags) — топ по average views</div>
+          <div class="card-title">Hashtags — топ по average views</div>
           <div class="muted">Минимум постов для темы: 3</div>
           <div class="table-wrap">
             <table>
@@ -378,14 +384,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr><tr><td>лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr><tr><td>кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr>
+                <tr><td>#каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr><tr><td>#лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>#клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>#новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>#офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>#гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr><tr><td>#кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>#мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>#диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>#эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>#неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">Темы (слова) — топ по average likes</div>
+          <div class="card-title">Words — топ по average likes</div>
           <div class="muted">Минимум постов для темы: 3</div>
           <div class="table-wrap">
             <table>
@@ -401,14 +407,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>берегит</td><td class='num'>4</td><td class='num'>2</td><td class='num'>75135</td><td class='num'>18783.75</td><td class='num'>1775124</td><td class='num'>887562.0</td></tr><tr><td>погод</td><td class='num'>5</td><td class='num'>4</td><td class='num'>75450</td><td class='num'>15090.0</td><td class='num'>1773882</td><td class='num'>591294.0</td></tr><tr><td>себя</td><td class='num'>16</td><td class='num'>5</td><td class='num'>77071</td><td class='num'>4816.94</td><td class='num'>1839851</td><td class='num'>153320.92</td></tr><tr><td>собрал</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12323</td><td class='num'>4107.67</td><td class='num'>5478</td><td class='num'>5478.0</td></tr><tr><td>благодарность</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12235</td><td class='num'>4078.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>нежность</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12212</td><td class='num'>4070.67</td><td class='num'>27</td><td class='num'>27.0</td></tr><tr><td>зна</td><td class='num'>4</td><td class='num'>3</td><td class='num'>12736</td><td class='num'>3184.0</td><td class='num'>2501</td><td class='num'>1250.5</td></tr><tr><td>обязательн</td><td class='num'>7</td><td class='num'>5</td><td class='num'>12552</td><td class='num'>1793.14</td><td class='num'>25188</td><td class='num'>5037.6</td></tr><tr><td>карусель</td><td class='num'>9</td><td class='num'>2</td><td class='num'>13654</td><td class='num'>1517.11</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>листайт</td><td class='num'>10</td><td class='num'>3</td><td class='num'>14220</td><td class='num'>1422.0</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>пупочн</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>бедренн</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>вентральн</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>сообщить</td><td class='num'>3</td><td class='num'>2</td><td class='num'>3523</td><td class='num'>1174.33</td><td class='num'>848</td><td class='num'>848.0</td></tr><tr><td>нейрохирург</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3457</td><td class='num'>1152.33</td><td class='num'>531325</td><td class='num'>177108.33</td></tr>
+                <tr><td>берегит*</td><td class='num'>4</td><td class='num'>2</td><td class='num'>75135</td><td class='num'>18783.75</td><td class='num'>1775124</td><td class='num'>887562.0</td></tr><tr><td>погод*</td><td class='num'>5</td><td class='num'>4</td><td class='num'>75450</td><td class='num'>15090.0</td><td class='num'>1773882</td><td class='num'>591294.0</td></tr><tr><td>себя*</td><td class='num'>16</td><td class='num'>5</td><td class='num'>77071</td><td class='num'>4816.94</td><td class='num'>1839851</td><td class='num'>153320.92</td></tr><tr><td>собрал*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12323</td><td class='num'>4107.67</td><td class='num'>5478</td><td class='num'>5478.0</td></tr><tr><td>благодарность*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12235</td><td class='num'>4078.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>нежность*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>12212</td><td class='num'>4070.67</td><td class='num'>27</td><td class='num'>27.0</td></tr><tr><td>зна*</td><td class='num'>4</td><td class='num'>3</td><td class='num'>12736</td><td class='num'>3184.0</td><td class='num'>2501</td><td class='num'>1250.5</td></tr><tr><td>обязательн*</td><td class='num'>7</td><td class='num'>5</td><td class='num'>12552</td><td class='num'>1793.14</td><td class='num'>25188</td><td class='num'>5037.6</td></tr><tr><td>карусель*</td><td class='num'>9</td><td class='num'>2</td><td class='num'>13654</td><td class='num'>1517.11</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>листайт*</td><td class='num'>10</td><td class='num'>3</td><td class='num'>14220</td><td class='num'>1422.0</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>бедренн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>пупочн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>вентральн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>сообщить*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>3523</td><td class='num'>1174.33</td><td class='num'>848</td><td class='num'>848.0</td></tr><tr><td>нейрохирург*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3457</td><td class='num'>1152.33</td><td class='num'>531325</td><td class='num'>177108.33</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">Темы (слова) — топ по average views</div>
+          <div class="card-title">Words — топ по average views</div>
           <div class="muted">Минимум постов для темы: 3</div>
           <div class="table-wrap">
             <table>
@@ -424,15 +430,530 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>минус</td><td class='num'>3</td><td class='num'>2</td><td class='num'>1844</td><td class='num'>614.67</td><td class='num'>3439362</td><td class='num'>3439362.0</td></tr><tr><td>персонал</td><td class='num'>3</td><td class='num'>3</td><td class='num'>342</td><td class='num'>114.0</td><td class='num'>3439362</td><td class='num'>3439362.0</td></tr><tr><td>часов</td><td class='num'>4</td><td class='num'>3</td><td class='num'>1966</td><td class='num'>491.5</td><td class='num'>3448773</td><td class='num'>1724386.5</td></tr><tr><td>собственн</td><td class='num'>4</td><td class='num'>4</td><td class='num'>586</td><td class='num'>146.5</td><td class='num'>3443774</td><td class='num'>1721887.0</td></tr><tr><td>ничег</td><td class='num'>4</td><td class='num'>4</td><td class='num'>307</td><td class='num'>76.75</td><td class='num'>3442065</td><td class='num'>1721032.5</td></tr><tr><td>полезных</td><td class='num'>3</td><td class='num'>3</td><td class='num'>96</td><td class='num'>32.0</td><td class='num'>3441408</td><td class='num'>1720704.0</td></tr><tr><td>кишечник</td><td class='num'>6</td><td class='num'>3</td><td class='num'>321</td><td class='num'>53.5</td><td class='num'>3440838</td><td class='num'>1720419.0</td></tr><tr><td>биопси</td><td class='num'>3</td><td class='num'>3</td><td class='num'>691</td><td class='num'>230.33</td><td class='num'>3440838</td><td class='num'>1720419.0</td></tr><tr><td>дел</td><td class='num'>4</td><td class='num'>1</td><td class='num'>206</td><td class='num'>51.5</td><td class='num'>3440427</td><td class='num'>1720213.5</td></tr><tr><td>последстви</td><td class='num'>3</td><td class='num'>2</td><td class='num'>76</td><td class='num'>25.33</td><td class='num'>3440419</td><td class='num'>1720209.5</td></tr><tr><td>тело</td><td class='num'>6</td><td class='num'>2</td><td class='num'>441</td><td class='num'>73.5</td><td class='num'>3440013</td><td class='num'>1720006.5</td></tr><tr><td>эта</td><td class='num'>3</td><td class='num'>2</td><td class='num'>591</td><td class='num'>197.0</td><td class='num'>3439860</td><td class='num'>1719930.0</td></tr><tr><td>пока</td><td class='num'>6</td><td class='num'>4</td><td class='num'>759</td><td class='num'>126.5</td><td class='num'>3439704</td><td class='num'>1719852.0</td></tr><tr><td>пищев</td><td class='num'>3</td><td class='num'>2</td><td class='num'>143</td><td class='num'>47.67</td><td class='num'>3439565</td><td class='num'>1719782.5</td></tr><tr><td>данных</td><td class='num'>4</td><td class='num'>2</td><td class='num'>498</td><td class='num'>124.5</td><td class='num'>3469201</td><td class='num'>1156400.33</td></tr>
+                <tr><td>минус*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>1844</td><td class='num'>614.67</td><td class='num'>3439362</td><td class='num'>3439362.0</td></tr><tr><td>персонал*</td><td class='num'>3</td><td class='num'>3</td><td class='num'>342</td><td class='num'>114.0</td><td class='num'>3439362</td><td class='num'>3439362.0</td></tr><tr><td>часов*</td><td class='num'>4</td><td class='num'>3</td><td class='num'>1966</td><td class='num'>491.5</td><td class='num'>3448773</td><td class='num'>1724386.5</td></tr><tr><td>собственн*</td><td class='num'>4</td><td class='num'>4</td><td class='num'>586</td><td class='num'>146.5</td><td class='num'>3443774</td><td class='num'>1721887.0</td></tr><tr><td>ничег*</td><td class='num'>4</td><td class='num'>4</td><td class='num'>307</td><td class='num'>76.75</td><td class='num'>3442065</td><td class='num'>1721032.5</td></tr><tr><td>полезных*</td><td class='num'>3</td><td class='num'>3</td><td class='num'>96</td><td class='num'>32.0</td><td class='num'>3441408</td><td class='num'>1720704.0</td></tr><tr><td>кишечник*</td><td class='num'>6</td><td class='num'>3</td><td class='num'>321</td><td class='num'>53.5</td><td class='num'>3440838</td><td class='num'>1720419.0</td></tr><tr><td>биопси*</td><td class='num'>3</td><td class='num'>3</td><td class='num'>691</td><td class='num'>230.33</td><td class='num'>3440838</td><td class='num'>1720419.0</td></tr><tr><td>дел*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>206</td><td class='num'>51.5</td><td class='num'>3440427</td><td class='num'>1720213.5</td></tr><tr><td>последстви*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>76</td><td class='num'>25.33</td><td class='num'>3440419</td><td class='num'>1720209.5</td></tr><tr><td>тело*</td><td class='num'>6</td><td class='num'>2</td><td class='num'>441</td><td class='num'>73.5</td><td class='num'>3440013</td><td class='num'>1720006.5</td></tr><tr><td>эта*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>591</td><td class='num'>197.0</td><td class='num'>3439860</td><td class='num'>1719930.0</td></tr><tr><td>пока*</td><td class='num'>6</td><td class='num'>4</td><td class='num'>759</td><td class='num'>126.5</td><td class='num'>3439704</td><td class='num'>1719852.0</td></tr><tr><td>пищев*</td><td class='num'>3</td><td class='num'>2</td><td class='num'>143</td><td class='num'>47.67</td><td class='num'>3439565</td><td class='num'>1719782.5</td></tr><tr><td>данных*</td><td class='num'>4</td><td class='num'>2</td><td class='num'>498</td><td class='num'>124.5</td><td class='num'>3469201</td><td class='num'>1156400.33</td></tr>
               </tbody>
             </table>
           </div>
         </div>
-        </div>
-    <div class='grid'>
+        </div><div style='margin-top:12px'>
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: kaskad</summary>
+              <div class="grid" style="margin-top:12px">
+                
         <div class="card">
-          <div class="card-title">Кластеры тем — топ по average likes</div>
+          <div class="card-title">Hashtags — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#каскадвопросов</td><td class='num'>16</td><td class='num'>1</td><td class='num'>1266</td><td class='num'>79.12</td><td class='num'>89805</td><td class='num'>5612.81</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>проконсультироватьс*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>4198</td><td class='num'>2099.0</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>сообщить*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3454</td><td class='num'>1727.0</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>август*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3129</td><td class='num'>1564.5</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>июля*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3129</td><td class='num'>1564.5</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>бедренн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>пупочн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>пахов*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>вентральн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>4258</td><td class='num'>1419.33</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>действовать*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>2515</td><td class='num'>1257.5</td><td class='num'>1710</td><td class='num'>1710.0</td></tr><tr><td>упустит*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>4927</td><td class='num'>1231.75</td><td class='num'>0</td><td class='num'>0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>последств*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>148</td><td class='num'>74.0</td><td class='num'>82295</td><td class='num'>82295.0</td></tr><tr><td>сиять*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>667</td><td class='num'>333.5</td><td class='num'>82295</td><td class='num'>82295.0</td></tr><tr><td>фототерапи*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>342</td><td class='num'>171.0</td><td class='num'>160296</td><td class='num'>80148.0</td></tr><tr><td>сосудистых*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>348</td><td class='num'>87.0</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>воздействует*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>479</td><td class='num'>239.5</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>устранен*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>477</td><td class='num'>238.5</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>улучшен*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>477</td><td class='num'>238.5</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>уменьшен*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>304</td><td class='num'>152.0</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>direct*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>2358</td><td class='num'>589.5</td><td class='num'>78001</td><td class='num'>78001.0</td></tr><tr><td>преимуществ*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>340</td><td class='num'>113.33</td><td class='num'>112628</td><td class='num'>56314.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: kravira</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>#эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>#кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>#педиатрминск</td><td class='num'>2</td><td class='num'>1</td><td class='num'>123</td><td class='num'>61.5</td><td class='num'>1625</td><td class='num'>1625.0</td></tr><tr><td>#неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr><tr><td>#гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#гинекологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>109</td><td class='num'>36.33</td><td class='num'>5872</td><td class='num'>1957.33</td></tr><tr><td>#кравира</td><td class='num'>64</td><td class='num'>1</td><td class='num'>4077</td><td class='num'>63.7</td><td class='num'>68222</td><td class='num'>1795.32</td></tr><tr><td>#педиатрминск</td><td class='num'>2</td><td class='num'>1</td><td class='num'>123</td><td class='num'>61.5</td><td class='num'>1625</td><td class='num'>1625.0</td></tr><tr><td>#диетологминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>632</td><td class='num'>210.67</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>#эндокринологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>657</td><td class='num'>164.25</td><td class='num'>2436</td><td class='num'>1218.0</td></tr><tr><td>#неврологминск</td><td class='num'>4</td><td class='num'>1</td><td class='num'>197</td><td class='num'>49.25</td><td class='num'>3135</td><td class='num'>1045.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>себя*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>75352</td><td class='num'>37676.0</td><td class='num'>1771507</td><td class='num'>1771507.0</td></tr><tr><td>берегит*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>75064</td><td class='num'>37532.0</td><td class='num'>1775124</td><td class='num'>887562.0</td></tr><tr><td>погод*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>74975</td><td class='num'>37487.5</td><td class='num'>1772528</td><td class='num'>886264.0</td></tr><tr><td>похудеть*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>возвращаетс*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>решен*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>нее*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>пытаетесь*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>уходит*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr><tr><td>обратн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>527</td><td class='num'>263.5</td><td class='num'>1320</td><td class='num'>1320.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>себя*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>75352</td><td class='num'>37676.0</td><td class='num'>1771507</td><td class='num'>1771507.0</td></tr><tr><td>берегит*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>75064</td><td class='num'>37532.0</td><td class='num'>1775124</td><td class='num'>887562.0</td></tr><tr><td>погод*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>74975</td><td class='num'>37487.5</td><td class='num'>1772528</td><td class='num'>886264.0</td></tr><tr><td>своим*</td><td class='num'>12</td><td class='num'>1</td><td class='num'>470</td><td class='num'>39.17</td><td class='num'>4555</td><td class='num'>4555.0</td></tr><tr><td>уютн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr><tr><td>лечат*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr><tr><td>пор*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr><tr><td>здесь*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr><tr><td>забываешь*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr><tr><td>где*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>119</td><td class='num'>59.5</td><td class='num'>4343</td><td class='num'>4343.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: lode.med</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="muted">Недостаточно данных</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="muted">Недостаточно данных</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>кто*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>12414</td><td class='num'>6207.0</td><td class='num'>412</td><td class='num'>412.0</td></tr><tr><td>зна*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>12403</td><td class='num'>6201.5</td><td class='num'>1864</td><td class='num'>1864.0</td></tr><tr><td>том*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>12199</td><td class='num'>6099.5</td><td class='num'>1854</td><td class='num'>1854.0</td></tr><tr><td>мама*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>12161</td><td class='num'>6080.5</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>нас*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>12680</td><td class='num'>4226.67</td><td class='num'>3167</td><td class='num'>3167.0</td></tr><tr><td>даже*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>12504</td><td class='num'>3126.0</td><td class='num'>0</td><td class='num'>0</td></tr><tr><td>точн*</td><td class='num'>6</td><td class='num'>1</td><td class='num'>13397</td><td class='num'>2232.83</td><td class='num'>61606</td><td class='num'>20535.33</td></tr><tr><td>все*</td><td class='num'>6</td><td class='num'>1</td><td class='num'>13121</td><td class='num'>2186.83</td><td class='num'>44106</td><td class='num'>22053.0</td></tr><tr><td>так*</td><td class='num'>6</td><td class='num'>1</td><td class='num'>12679</td><td class='num'>2113.17</td><td class='num'>12565</td><td class='num'>12565.0</td></tr><tr><td>вас*</td><td class='num'>12</td><td class='num'>1</td><td class='num'>14914</td><td class='num'>1242.83</td><td class='num'>109954</td><td class='num'>15707.71</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>сеансов*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>988</td><td class='num'>247.0</td><td class='num'>124668</td><td class='num'>124668.0</td></tr><tr><td>скидк*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>1110</td><td class='num'>277.5</td><td class='num'>155798</td><td class='num'>77899.0</td></tr><tr><td>emsella*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>1110</td><td class='num'>277.5</td><td class='num'>155798</td><td class='num'>77899.0</td></tr><tr><td>комплекс*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>1110</td><td class='num'>277.5</td><td class='num'>155798</td><td class='num'>77899.0</td></tr><tr><td>магнитотерапи*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>1110</td><td class='num'>277.5</td><td class='num'>155798</td><td class='num'>77899.0</td></tr><tr><td>действует*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>980</td><td class='num'>245.0</td><td class='num'>126515</td><td class='num'>63257.5</td></tr><tr><td>программ*</td><td class='num'>7</td><td class='num'>1</td><td class='num'>1718</td><td class='num'>245.43</td><td class='num'>226189</td><td class='num'>56547.25</td></tr><tr><td>специальн*</td><td class='num'>7</td><td class='num'>1</td><td class='num'>1263</td><td class='num'>180.43</td><td class='num'>139080</td><td class='num'>46360.0</td></tr><tr><td>поч*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>569</td><td class='num'>284.5</td><td class='num'>45969</td><td class='num'>45969.0</td></tr><tr><td>пот*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>492</td><td class='num'>164.0</td><td class='num'>45969</td><td class='num'>45969.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: mercimed.by</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>#лазернаякоррекцияминск</td><td class='num'>2</td><td class='num'>1</td><td class='num'>209</td><td class='num'>104.5</td><td class='num'>1704</td><td class='num'>1704.0</td></tr><tr><td>#клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>#новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>#офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>#мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>#лечениекатаракты</td><td class='num'>2</td><td class='num'>1</td><td class='num'>101</td><td class='num'>50.5</td><td class='num'>3411</td><td class='num'>1705.5</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>#лазернаякоррекция</td><td class='num'>4</td><td class='num'>1</td><td class='num'>434</td><td class='num'>108.5</td><td class='num'>9866</td><td class='num'>3288.67</td></tr><tr><td>#клиникамерси</td><td class='num'>8</td><td class='num'>1</td><td class='num'>810</td><td class='num'>101.25</td><td class='num'>18502</td><td class='num'>3083.67</td></tr><tr><td>#новоезрение</td><td class='num'>6</td><td class='num'>1</td><td class='num'>535</td><td class='num'>89.17</td><td class='num'>13277</td><td class='num'>2655.4</td></tr><tr><td>#офтальмологминск</td><td class='num'>5</td><td class='num'>1</td><td class='num'>392</td><td class='num'>78.4</td><td class='num'>8414</td><td class='num'>2103.5</td></tr><tr><td>#лечениекатаракты</td><td class='num'>2</td><td class='num'>1</td><td class='num'>101</td><td class='num'>50.5</td><td class='num'>3411</td><td class='num'>1705.5</td></tr><tr><td>#мерсиминск</td><td class='num'>3</td><td class='num'>1</td><td class='num'>216</td><td class='num'>72.0</td><td class='num'>5115</td><td class='num'>1705.0</td></tr><tr><td>#лазернаякоррекцияминск</td><td class='num'>2</td><td class='num'>1</td><td class='num'>209</td><td class='num'>104.5</td><td class='num'>1704</td><td class='num'>1704.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>сусленков*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3191</td><td class='num'>1595.5</td><td class='num'>510723</td><td class='num'>255361.5</td></tr><tr><td>talon*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3191</td><td class='num'>1595.5</td><td class='num'>510723</td><td class='num'>255361.5</td></tr><tr><td>уколов*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3157</td><td class='num'>1578.5</td><td class='num'>429777</td><td class='num'>214888.5</td></tr><tr><td>очки*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3145</td><td class='num'>1572.5</td><td class='num'>427835</td><td class='num'>213917.5</td></tr><tr><td>видит*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3126</td><td class='num'>1563.0</td><td class='num'>427851</td><td class='num'>213925.5</td></tr><tr><td>катаракт*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3108</td><td class='num'>1554.0</td><td class='num'>426943</td><td class='num'>213471.5</td></tr><tr><td>свет*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3081</td><td class='num'>1540.5</td><td class='num'>425572</td><td class='num'>212786.0</td></tr><tr><td>возможн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3857</td><td class='num'>1285.67</td><td class='num'>487238</td><td class='num'>243619.0</td></tr><tr><td>опытн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3827</td><td class='num'>1275.67</td><td class='num'>431925</td><td class='num'>215962.5</td></tr><tr><td>глазн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3776</td><td class='num'>1258.67</td><td class='num'>487238</td><td class='num'>243619.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>высш*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>2914</td><td class='num'>971.33</td><td class='num'>295540</td><td class='num'>295540.0</td></tr><tr><td>категори*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>2914</td><td class='num'>971.33</td><td class='num'>295540</td><td class='num'>295540.0</td></tr><tr><td>сусленков*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3191</td><td class='num'>1595.5</td><td class='num'>510723</td><td class='num'>255361.5</td></tr><tr><td>talon*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>3191</td><td class='num'>1595.5</td><td class='num'>510723</td><td class='num'>255361.5</td></tr><tr><td>глазн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3776</td><td class='num'>1258.67</td><td class='num'>487238</td><td class='num'>243619.0</td></tr><tr><td>возможн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3857</td><td class='num'>1285.67</td><td class='num'>487238</td><td class='num'>243619.0</td></tr><tr><td>есть*</td><td class='num'>6</td><td class='num'>1</td><td class='num'>4266</td><td class='num'>711.0</td><td class='num'>445488</td><td class='num'>222744.0</td></tr><tr><td>безопасн*</td><td class='num'>5</td><td class='num'>1</td><td class='num'>4044</td><td class='num'>808.8</td><td class='num'>442894</td><td class='num'>221447.0</td></tr><tr><td>уже*</td><td class='num'>7</td><td class='num'>1</td><td class='num'>5136</td><td class='num'>733.71</td><td class='num'>432422</td><td class='num'>216211.0</td></tr><tr><td>опытн*</td><td class='num'>3</td><td class='num'>1</td><td class='num'>3827</td><td class='num'>1275.67</td><td class='num'>431925</td><td class='num'>215962.5</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">Темы по аккаунту: nordin.medcentr</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="muted">Недостаточно данных</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Hashtags — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="muted">Недостаточно данных</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg likes</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>полость*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>198</td><td class='num'>99.0</td><td class='num'>2808</td><td class='num'>1404.0</td></tr><tr><td>канал*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>198</td><td class='num'>99.0</td><td class='num'>2808</td><td class='num'>1404.0</td></tr><tr><td>выбрал*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>194</td><td class='num'>97.0</td><td class='num'>1572</td><td class='num'>786.0</td></tr><tr><td>новогодн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>193</td><td class='num'>96.5</td><td class='num'>1495</td><td class='num'>747.5</td></tr><tr><td>способ*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>190</td><td class='num'>95.0</td><td class='num'>9331</td><td class='num'>4665.5</td></tr><tr><td>руководитель*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>180</td><td class='num'>90.0</td><td class='num'>2019</td><td class='num'>1009.5</td></tr><tr><td>каналов*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>174</td><td class='num'>87.0</td><td class='num'>2777</td><td class='num'>1388.5</td></tr><tr><td>день*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>169</td><td class='num'>84.5</td><td class='num'>2149</td><td class='num'>1074.5</td></tr><tr><td>ресурс*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>169</td><td class='num'>84.5</td><td class='num'>2149</td><td class='num'>1074.5</td></tr><tr><td>самым*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>167</td><td class='num'>83.5</td><td class='num'>2465</td><td class='num'>1232.5</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Words — top avg views</div>
+          <div class="muted">Минимум постов для темы: 3</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>topic</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>нас*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>43</td><td class='num'>21.5</td><td class='num'>3439362</td><td class='num'>3439362.0</td></tr><tr><td>полезн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>90</td><td class='num'>45.0</td><td class='num'>3448186</td><td class='num'>1724093.0</td></tr><tr><td>скор*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>94</td><td class='num'>47.0</td><td class='num'>3441000</td><td class='num'>1720500.0</td></tr><tr><td>покажет*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>94</td><td class='num'>47.0</td><td class='num'>3441000</td><td class='num'>1720500.0</td></tr><tr><td>квалифицированн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>75</td><td class='num'>37.5</td><td class='num'>3440932</td><td class='num'>1720466.0</td></tr><tr><td>неприятн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>55</td><td class='num'>27.5</td><td class='num'>3440793</td><td class='num'>1720396.5</td></tr><tr><td>данных*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>46</td><td class='num'>23.0</td><td class='num'>3440537</td><td class='num'>1720268.5</td></tr><tr><td>дальш*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>102</td><td class='num'>51.0</td><td class='num'>3440532</td><td class='num'>1720266.0</td></tr><tr><td>мн*</td><td class='num'>2</td><td class='num'>1</td><td class='num'>53</td><td class='num'>26.5</td><td class='num'>3440460</td><td class='num'>1720230.0</td></tr><tr><td>дел*</td><td class='num'>4</td><td class='num'>1</td><td class='num'>206</td><td class='num'>51.5</td><td class='num'>3440427</td><td class='num'>1720213.5</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
+            </details>
+            </div>
+    <div class='card'><div class='card-title'>Умные темы (кластеры)</div><div class='muted'>Мы объединяем слова/хэштеги в кластеры по совместной встречаемости в постах. Так получается не один “слово‑триггер”, а цельная тема. В таблицах показаны топ‑токены кластера.</div></div><div class='grid'>
+        <div class="card">
+          <div class="card-title">Кластеры — топ по average likes</div>
           <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
           <div class="table-wrap">
             <table>
@@ -453,14 +974,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td class='mono'>1</td><td>врач,клиник,можн,здоровь,котор,номер,записатьс,при</td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">Кластеры тем — топ по average views</div>
+          <div class="card-title">Кластеры — топ по average views</div>
           <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
           <div class="table-wrap">
             <table>
@@ -481,14 +1002,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td class='mono'>1</td><td>врач,клиник,можн,здоровь,котор,номер,записатьс,при</td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">Кластеры тем — топ по количеству постов</div>
+          <div class="card-title">Кластеры — топ по количеству постов</div>
           <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
           <div class="table-wrap">
             <table>
@@ -509,12 +1030,337 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td class='mono'>1</td><td>врач,клиник,можн,здоровь,котор,номер,записатьс,при</td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>405</td><td class='num'>5</td><td class='num'>151693</td><td class='num'>374.55</td><td class='num'>7994640</td><td class='num'>32764.92</td><td><a href="https://www.instagram.com/p/DHTixjhtXS8/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DHTixjhtXS8/</a></td><td class='num'>74952</td><td><a href="https://www.instagram.com/p/DOJBoteCCfd/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DOJBoteCCfd/</a></td><td class='num'>3439362</td></tr>
               </tbody>
             </table>
           </div>
         </div>
+        </div><div style='margin-top:12px'>
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: kaskad</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg likes</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>105</td><td class='num'>1</td><td class='num'>22710</td><td class='num'>216.29</td><td class='num'>556015</td><td class='num'>13900.38</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg views</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>105</td><td class='num'>1</td><td class='num'>22710</td><td class='num'>216.29</td><td class='num'>556015</td><td class='num'>13900.38</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: kravira</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg likes</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>143</td><td class='num'>1</td><td class='num'>84920</td><td class='num'>593.85</td><td class='num'>1969300</td><td class='num'>20094.9</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg views</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>143</td><td class='num'>1</td><td class='num'>84920</td><td class='num'>593.85</td><td class='num'>1969300</td><td class='num'>20094.9</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: lode.med</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg likes</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>43</td><td class='num'>1</td><td class='num'>19493</td><td class='num'>453.33</td><td class='num'>402596</td><td class='num'>18299.82</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg views</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>43</td><td class='num'>1</td><td class='num'>19493</td><td class='num'>453.33</td><td class='num'>402596</td><td class='num'>18299.82</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: mercimed.by</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg likes</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>69</td><td class='num'>1</td><td class='num'>22028</td><td class='num'>319.25</td><td class='num'>1583656</td><td class='num'>34427.3</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg views</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>69</td><td class='num'>1</td><td class='num'>22028</td><td class='num'>319.25</td><td class='num'>1583656</td><td class='num'>34427.3</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            
+            <details class="card">
+              <summary class="card-title">Кластеры по аккаунту: nordin.medcentr</summary>
+              <div class="grid" style="margin-top:12px">
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg likes</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>45</td><td class='num'>1</td><td class='num'>2542</td><td class='num'>56.49</td><td class='num'>3483073</td><td class='num'>91659.82</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+                
+        <div class="card">
+          <div class="card-title">Топ кластеров по avg views</div>
+          <div class="muted">Кластеризация по co-occurrence: min_token_posts=6, min_edge=4, min_cluster_posts=10.</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>top_tokens</th>
+                  <th class="num">posts</th>
+                  <th class="num">profiles</th>
+                  <th class="num">likes_sum</th>
+                  <th class="num">likes_avg</th>
+                  <th class="num">views_sum</th>
+                  <th class="num">views_avg</th>
+                  <th>top_like_url</th>
+                  <th class="num">top_like</th>
+                  <th>top_view_url</th>
+                  <th class="num">top_view</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class='mono'>1</td><td><div class='chips'><span class='chip'>врач*</span><span class='chip'>клиник*</span><span class='chip'>здоровь*</span><span class='chip'>можн*</span><span class='chip'>котор*</span><span class='chip'>номер*</span><span class='chip'>записатьс*</span><span class='chip'>при*</span></div></td><td class='num'>45</td><td class='num'>1</td><td class='num'>2542</td><td class='num'>56.49</td><td class='num'>3483073</td><td class='num'>91659.82</td><td></td><td class='num'></td><td></td><td class='num'></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+              </div>
+              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
+            </details>
+            </div>
 
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.

@@ -1,2 +1,112 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Instagram reports</title><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:920px;margin:24px auto;padding:0 16px}h1{margin:0 0 8px} .muted{color:#666} ul{line-height:1.7}code{background:#f3f3f3;padding:2px 6px;border-radius:6px}</style></head><body><h1>Instagram reports</h1><div class="muted">Сгенерировано скрапером на базе <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.</div><h2>Отчёты</h2><ul><li><a href="report_2025-01-01_to_2026-02-01.html">report_2025-01-01_to_2026-02-01.html</a></li></ul><h2>CSV</h2><ul><li><a href="clusters_2025-01-01_to_2026-02-01.csv">clusters_2025-01-01_to_2026-02-01.csv</a></li><li><a href="items_2025-01-01_to_2026-02-01.csv">items_2025-01-01_to_2026-02-01.csv</a></li><li><a href="summary_2025-01-01_to_2026-02-01.csv">summary_2025-01-01_to_2026-02-01.csv</a></li><li><a href="topics_2025-01-01_to_2026-02-01.csv">topics_2025-01-01_to_2026-02-01.csv</a></li></ul><h2>Как обновить</h2><p>Локально: <code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></p></body></html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instagram reports</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111a2e;
+      --text: #e9eefc;
+      --muted: #9fb0d0;
+      --grid: rgba(255,255,255,0.08);
+      --accent: #7aa2ff;
+      --btn: #4f7dff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    }
+    body {
+      margin: 0; padding: 24px;
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,0.25), transparent 60%),
+                  radial-gradient(1200px 800px at 90% 10%, rgba(79,125,255,0.18), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .title { font-size: 24px; font-weight: 800; margin: 0; }
+    .sub { color: var(--muted); margin-top: 6px; line-height: 1.4; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 30%), var(--card);
+      border: 1px solid var(--grid);
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .card-top { display:flex; align-items:flex-start; justify-content:space-between; gap: 10px; }
+    .card-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .card-period { font-family: var(--mono); font-size: 14px; margin-top: 6px; }
+    .muted { color: var(--muted); font-size: 13px; margin-top: 12px; }
+    .btn {
+      display:inline-flex; align-items:center; justify-content:center;
+      background: linear-gradient(90deg, var(--btn), rgba(122,162,255,0.9));
+      color: white; border: 0; border-radius: 999px;
+      padding: 10px 12px; font-weight: 700; font-size: 13px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .btn:hover { text-decoration: none; filter: brightness(1.05); }
+    .chips { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .chip {
+      display:inline-flex; align-items:center;
+      border: 1px solid var(--grid);
+      background: rgba(255,255,255,0.03);
+      padding: 6px 10px; border-radius: 999px;
+      font-size: 13px;
+    }
+    .howto {
+      margin-top: 18px;
+      border: 1px dashed var(--grid);
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+    }
+    code {
+      font-family: var(--mono);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--grid);
+      padding: 2px 6px;
+      border-radius: 8px;
+    }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Instagram reports</h1>
+    <div class="sub">
+      Статический отчёт (GitHub Pages). Данные собраны через
+      <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
+    </div>
+
+    <div class="grid">
+      
+            <div class="card">
+              <div class="card-top">
+                <div>
+                  <div class="card-title">Период</div>
+                  <div class="card-period">2025-01-01 → 2026-02-01</div>
+                </div>
+                <a class="btn" href="report_2025-01-01_to_2026-02-01.html">Открыть отчёт</a>
+              </div>
+              <div class="muted">Файлы данных:</div>
+              <div class="chips">
+                <a class="chip" href="clusters_2025-01-01_to_2026-02-01.csv">clusters_2025-01-01_to_2026-02-01.csv</a><a class="chip" href="items_2025-01-01_to_2026-02-01.csv">items_2025-01-01_to_2026-02-01.csv</a><a class="chip" href="summary_2025-01-01_to_2026-02-01.csv">summary_2025-01-01_to_2026-02-01.csv</a><a class="chip" href="topics_2025-01-01_to_2026-02-01.csv">topics_2025-01-01_to_2026-02-01.csv</a>
+              </div>
+            </div>
+            
+    </div>
+
+    <div class="howto">
+      <div class="card-title">Как обновить</div>
+      <div class="sub">Локально (перескрапить и обновить docs):</div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></div>
+      <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto</code></div>
+    </div>
+  </div>
+</body>
+</html>
