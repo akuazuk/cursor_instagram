@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import os
@@ -45,6 +46,14 @@ class Config:
     llm_max_posts_per_profile: int  # 0 = all
     ollama_timeout_seconds: int
     llm_polish: bool
+    baseline_profile: str
+    vectara_base_url: str
+    vectara_customer_id: str
+    vectara_api_key: str
+    vectara_corpus_key: str
+    vectara_enabled: bool
+    vectara_index: bool
+    vectara_theme_limit: int
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -133,8 +142,20 @@ def _init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vectara_index_cache (
+            item_key TEXT PRIMARY KEY,
+            vectara_doc_id TEXT NOT NULL,
+            profile_label TEXT,
+            profile_url TEXT,
+            indexed_at_utc TEXT NOT NULL
+        )
+        """
+    )
     _ensure_columns(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_profile_ts ON items(profile_url, timestamp_utc)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vectara_doc_id ON vectara_index_cache(vectara_doc_id)")
     conn.commit()
 
 
@@ -759,6 +780,9 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
         llm_json = cfg.output_dir / f"llm_insights_{tag}.json"
         llm_benchmark_csv = cfg.output_dir / f"llm_benchmark_{tag}.csv"
+        vs_json = cfg.output_dir / f"llm_vs_{cfg.baseline_profile}_{tag}.json"
+        vs_csv = cfg.output_dir / f"benchmark_vs_{cfg.baseline_profile}_{tag}.csv"
+        vectara_themes_csv = cfg.output_dir / f"vectara_themes_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -775,6 +799,14 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             """,
             (*profile_urls, f"{start_s}T00:00:00+00:00", f"{end_s}T00:00:00+00:00"),
         ).fetchall()
+
+        # Optional: index posts into Vectara for semantic queries.
+        vectara_index_info: dict[str, Any] = {}
+        if _vectara_is_enabled(cfg):
+            try:
+                vectara_index_info = _vectara_sync_index(conn=conn, cfg=cfg, rows=rows, timeout=30, sleep_seconds=0.05)
+            except Exception as e:
+                vectara_index_info = {"enabled": True, "error": str(e), "indexed": 0, "skipped": 0}
 
         with items_csv.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
@@ -804,10 +836,10 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
                   COUNT(*) as items_total,
                   SUM(CASE WHEN content_kind='reel' THEN 1 ELSE 0 END) as reels_count,
                   SUM(CASE WHEN content_kind='post' THEN 1 ELSE 0 END) as posts_count,
-                  SUM(COALESCE(likes_count,0)) as likes_sum,
-                  SUM(COALESCE(comments_count,0)) as comments_sum,
-                  SUM(COALESCE(views_count,0)) as views_sum,
-                  SUM(CASE WHEN views_count IS NOT NULL THEN 1 ELSE 0 END) as views_items
+                  SUM(CASE WHEN likes_count IS NOT NULL AND likes_count >= 0 THEN likes_count ELSE 0 END) as likes_sum,
+                  SUM(CASE WHEN comments_count IS NOT NULL AND comments_count >= 0 THEN comments_count ELSE 0 END) as comments_sum,
+                  SUM(CASE WHEN views_count IS NOT NULL AND views_count >= 0 THEN views_count ELSE 0 END) as views_sum,
+                  SUM(CASE WHEN views_count IS NOT NULL AND views_count >= 0 THEN 1 ELSE 0 END) as views_items
                 FROM items
                 WHERE profile_url = ?
                   AND timestamp_utc >= ? AND timestamp_utc < ?
@@ -893,6 +925,11 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         llm_for_report: dict[str, Any] = {}
         llm_json_for_report: Path | None = None
         llm_benchmark_for_report: Path | None = None
+        vs_json_for_report: Path | None = None
+        vs_csv_for_report: Path | None = None
+        vs_for_report: dict[str, Any] = {}
+        vectara_themes_for_report: Path | None = None
+        vectara_themes_for_html: dict[str, Any] = {}
         if cfg.analysis_mode == "llm":
             try:
                 llm_for_report, bench_rows = _build_llm_insights(
@@ -922,6 +959,49 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             _write_llm_benchmark_csv(llm_benchmark_csv, bench_rows)
             llm_benchmark_for_report = llm_benchmark_csv
 
+            # Baseline comparison (vs Kravira by default)
+            try:
+                vs_payload, vs_rows = _build_vs_baseline(
+                    base_url=cfg.ollama_base_url,
+                    model=cfg.ollama_model,
+                    timeout_seconds=cfg.ollama_timeout_seconds,
+                    baseline=cfg.baseline_profile,
+                    bench_rows=bench_rows,
+                    all_rows=rows,
+                    start_s=start_s,
+                    end_s=end_s,
+                )
+                vs_json.write_text(json.dumps(vs_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                _write_vs_csv(vs_csv, vs_rows)
+                vs_json_for_report = vs_json
+                vs_csv_for_report = vs_csv
+                vs_for_report = vs_payload
+            except Exception as e:
+                # Don't fail the run if baseline comparison fails.
+                vs_payload = {"baseline": cfg.baseline_profile, "error": str(e)}
+                vs_json.write_text(json.dumps(vs_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                vs_json_for_report = vs_json
+                vs_for_report = vs_payload
+
+        # Vectara theme benchmark (works even if LLM disabled)
+        if _vectara_is_enabled(cfg):
+            try:
+                baseline_label = _pick_baseline_from_rows(rows, cfg.baseline_profile)
+                vectara_themes_for_html = _vectara_theme_benchmark(
+                    cfg=cfg,
+                    baseline_profile=baseline_label,
+                    limit=int(cfg.vectara_theme_limit),
+                )
+                _write_vectara_themes_csv(vectara_themes_csv, vectara_themes_for_html)
+                vectara_themes_for_report = vectara_themes_csv
+            except Exception as e:
+                vectara_themes_for_html = {"error": str(e), "baseline": cfg.baseline_profile}
+        elif cfg.vectara_enabled:
+            vectara_themes_for_html = {
+                "error": "Vectara включена, но не заданы env: VECTARA_CUSTOMER_ID, VECTARA_CORPUS_KEY, VECTARA_API_KEY",
+                "baseline": cfg.baseline_profile,
+            }
+
         _write_html_report(
             output_path=report_html,
             start_s=start_s,
@@ -930,6 +1010,12 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             summary_csv=summary_csv,
             llm_json=llm_json_for_report,
             llm_benchmark_csv=llm_benchmark_for_report,
+            vs_json=vs_json_for_report,
+            vs_csv=vs_csv_for_report,
+            vs_for_report=vs_for_report,
+            vectara_themes_csv=vectara_themes_for_report,
+            vectara_themes=vectara_themes_for_html,
+            vectara_index_info=vectara_index_info,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
@@ -942,6 +1028,12 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             outputs[f"llm_insights_{tag}"] = llm_json_for_report
         if llm_benchmark_for_report and llm_benchmark_for_report.exists():
             outputs[f"llm_benchmark_{tag}"] = llm_benchmark_for_report
+        if vs_json_for_report and vs_json_for_report.exists():
+            outputs[f"llm_vs_{tag}"] = vs_json_for_report
+        if vs_csv_for_report and vs_csv_for_report.exists():
+            outputs[f"benchmark_vs_{tag}"] = vs_csv_for_report
+        if vectara_themes_for_report and vectara_themes_for_report.exists():
+            outputs[f"vectara_themes_{tag}"] = vectara_themes_for_report
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -966,7 +1058,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
         return esc(name)
 
     def period_from(name: str) -> str:
-        m = re.match(r"^[a-z_]+_(\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})\.(?:html|csv|json)$", name)
+        m = re.search(r"(\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})", name)
         return m.group(1) if m else "unknown"
 
     files_by_period: dict[str, list[Path]] = defaultdict(list)
@@ -979,7 +1071,17 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
         file_list = [
             p
             for p in files_by_period.get(per, [])
-            if p.name.startswith(("items_", "summary_", "llm_insights_", "llm_benchmark_"))
+            if p.name.startswith(
+                (
+                    "items_",
+                    "summary_",
+                    "llm_insights_",
+                    "llm_benchmark_",
+                    "llm_vs_",
+                    "benchmark_vs_",
+                    "vectara_themes_",
+                )
+            )
         ]
 
         def sort_key(p: Path) -> tuple[int, str]:
@@ -991,6 +1093,12 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
                 return (2, p.name)
             if p.name.startswith("llm_benchmark_"):
                 return (3, p.name)
+            if p.name.startswith("benchmark_vs_"):
+                return (4, p.name)
+            if p.name.startswith("llm_vs_"):
+                return (5, p.name)
+            if p.name.startswith("vectara_themes_"):
+                return (6, p.name)
             return (9, p.name)
 
         file_list = sorted(file_list, key=sort_key)
@@ -1185,6 +1293,12 @@ def _write_html_report(
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
     llm_for_report: dict[str, Any],
+    vs_json: Path | None,
+    vs_csv: Path | None,
+    vs_for_report: dict[str, Any],
+    vectara_themes_csv: Path | None,
+    vectara_themes: dict[str, Any],
+    vectara_index_info: dict[str, Any],
 ) -> None:
     def esc(s: Any) -> str:
         return html.escape("" if s is None else str(s))
@@ -1300,6 +1414,12 @@ def _write_html_report(
     llm_link = f'<a class="pill" href="{rel_llm_json}">Скачать llm_insights JSON</a>' if llm_json else ""
     rel_bench = esc(llm_benchmark_csv.name) if llm_benchmark_csv else ""
     bench_link = f'<a class="pill" href="{rel_bench}">Скачать benchmark CSV</a>' if llm_benchmark_csv else ""
+    rel_vs_json = esc(vs_json.name) if vs_json else ""
+    rel_vs_csv = esc(vs_csv.name) if vs_csv else ""
+    vs_json_link = f'<a class="pill" href="{rel_vs_json}">Скачать сравнение vs {esc((vs_for_report or {}).get("baseline") or "baseline")} (JSON)</a>' if vs_json else ""
+    vs_csv_link = f'<a class="pill" href="{rel_vs_csv}">Скачать сравнение vs {esc((vs_for_report or {}).get("baseline") or "baseline")} (CSV)</a>' if vs_csv else ""
+    rel_vectara = esc(vectara_themes_csv.name) if vectara_themes_csv else ""
+    vectara_link = f'<a class="pill" href="{rel_vectara}">Скачать Vectara темы (CSV)</a>' if vectara_themes_csv else ""
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -1386,6 +1506,9 @@ def _write_html_report(
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
         {bench_link}
+        {vs_csv_link}
+        {vs_json_link}
+        {vectara_link}
         {llm_link}
       </div>
     </div>
@@ -1431,6 +1554,8 @@ def _write_html_report(
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
     {_llm_section_html(llm_for_report)}
+    {_vs_baseline_section_html(vs_for_report)}
+    {_vectara_themes_section_html(vectara_themes, vectara_index_info)}
 
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
@@ -1522,9 +1647,14 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
                 return "<div class='muted'>Нет</div>"
             lis = []
             for it in pillars[:10]:
-                title = it.get("pillar") or ""
-                share = it.get("share_pct")
-                fmt = it.get("best_formats") or []
+                if isinstance(it, dict):
+                    title = it.get("pillar") or ""
+                    share = it.get("share_pct")
+                    fmt = it.get("best_formats") or []
+                else:
+                    title = _as_text(it)
+                    share = None
+                    fmt = []
                 lis.append(
                     "<li>"
                     f"<b>{esc(title)}</b>"
@@ -1584,12 +1714,185 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
     )
 
 
+def _vs_baseline_section_html(vs: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    if not vs:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>Сравнение с baseline (например, Кравира)</div>"
+            "<div class='muted'>Нет данных сравнения.</div>"
+            "</div>"
+        )
+
+    err = vs.get("error")
+    baseline = vs.get("baseline") or vs.get("baseline_profile") or "baseline"
+    if err:
+        return (
+            "<div class='card'>"
+            f"<div class='card-title'>Сравнение с {esc(baseline)}</div>"
+            f"<div class='muted'>Не удалось построить сравнение: <code>{esc(err)}</code></div>"
+            "</div>"
+        )
+
+    rows = vs.get("vs_table") or []
+    if not isinstance(rows, list):
+        rows = []
+
+    # Table
+    cols = [
+        ("competitor", "конкурент"),
+        ("posts_per_week_ratio", "частота×"),
+        ("likes_median_ratio", "лайки p50×"),
+        ("likes_p75_ratio", "лайки p75×"),
+        ("comments_avg_ratio", "комменты×"),
+        ("views_median_ratio", "просмотры p50×"),
+        ("views_p75_ratio", "просмотры p75×"),
+        ("top_advantages", "топ‑преимущества"),
+    ]
+    ths = "".join(f"<th>{esc(title)}</th>" for _, title in cols)
+    trs = []
+    for r in rows:
+        trs.append("<tr>" + "".join(f"<td>{esc(r.get(k,''))}</td>" for k, _ in cols) + "</tr>")
+    table_html = (
+        "<div class='table-wrap'><table><thead><tr>"
+        + ths
+        + "</tr></thead><tbody>"
+        + ("".join(trs) if trs else "<tr><td colspan='8' class='muted'>Нет данных</td></tr>")
+        + "</tbody></table></div>"
+    )
+
+    def bullets(items: Any) -> str:
+        if not items or not isinstance(items, list):
+            return "<div class='muted'>Нет</div>"
+        return "<ul>" + "".join(f"<li>{esc(_as_text(x))}</li>" for x in items) + "</ul>"
+
+    takeaways = vs.get("global_takeaways") or []
+    plan = vs.get("baseline_30d_plan") or []
+    return (
+        "<div class='card'>"
+        f"<div class='card-title'>Сравнение всех центров с {esc(baseline)} (baseline)</div>"
+        "<div class='muted'>Здесь показаны относительные метрики конкурентов vs baseline и рекомендации для baseline, основанные на сильных сторонах конкурентов.</div>"
+        "</div>"
+        + "<div class='card'><div class='card-title'>Таблица сравнения (× к baseline)</div>"
+        + table_html
+        + "</div>"
+        + "<div class='grid' style='margin-top:12px'>"
+        + "<div class='card'><div class='card-title'>Ключевые выводы</div>"
+        + bullets(takeaways)
+        + "</div>"
+        + "<div class='card'><div class='card-title'>План для baseline на 30 дней</div>"
+        + bullets(plan)
+        + "</div>"
+        + "</div>"
+    )
+
+
+def _vectara_themes_section_html(vectara_themes: dict[str, Any], vectara_index_info: dict[str, Any]) -> str:
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    if not vectara_themes:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
+            "<div class='muted'>Vectara не включена или нет данных.</div>"
+            "</div>"
+        )
+
+    err = vectara_themes.get("error")
+    if err:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
+            f"<div class='muted'>Ошибка: <code>{esc(err)}</code></div>"
+            "</div>"
+        )
+
+    cols = vectara_themes.get("columns") or []
+    rows = vectara_themes.get("rows") or []
+    if not isinstance(cols, list) or not isinstance(rows, list) or not cols:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
+            "<div class='muted'>Нет данных.</div>"
+            "</div>"
+        )
+
+    # render a curated subset (human-readable)
+    show_cols = [
+        ("theme", "тема"),
+        ("leader_profile", "лидер"),
+        ("leader_views_median", "лидер: views p50"),
+        ("leader_likes_median", "лидер: likes p50"),
+        ("baseline_profile", "baseline"),
+        ("baseline_views_median", "baseline: views p50"),
+        ("baseline_likes_median", "baseline: likes p50"),
+        ("leader_examples", "примеры лидера"),
+    ]
+
+    def linkify_list(s: Any) -> str:
+        raw = ("" if s is None else str(s)).strip()
+        if not raw:
+            return ""
+        urls = [u.strip() for u in raw.split(";") if u.strip()]
+        out = []
+        for u in urls[:3]:
+            u_esc = esc(u)
+            out.append(f'<a href="{u_esc}" target="_blank" rel="noopener noreferrer">{u_esc}</a>')
+        return "<div class='chips'>" + "".join(f"<span class='chip'>{x}</span>" for x in out) + "</div>"
+
+    ths = "".join(f"<th>{esc(title)}</th>" for _, title in show_cols)
+    trs = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        tds = []
+        for key, _title in show_cols:
+            if key == "leader_examples":
+                tds.append(f"<td>{linkify_list(r.get(key,''))}</td>")
+            else:
+                tds.append(f"<td>{esc(r.get(key,''))}</td>")
+        trs.append("<tr>" + "".join(tds) + "</tr>")
+
+    idx_info = ""
+    if isinstance(vectara_index_info, dict) and vectara_index_info:
+        if vectara_index_info.get("error"):
+            idx_info = f"<div class='muted'>Индексация: ошибка <code>{esc(vectara_index_info.get('error'))}</code></div>"
+        else:
+            idx_info = (
+                "<div class='muted'>"
+                f"Индексация: indexed={esc(vectara_index_info.get('indexed',''))}, skipped={esc(vectara_index_info.get('skipped',''))}"
+                "</div>"
+            )
+
+    table_html = (
+        "<div class='table-wrap'><table><thead><tr>"
+        + ths
+        + "</tr></thead><tbody>"
+        + ("".join(trs) if trs else "<tr><td colspan='8' class='muted'>Нет данных</td></tr>")
+        + "</tbody></table></div>"
+    )
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>Vectara: тематический бенчмарк (семантический поиск)</div>"
+        "<div class='muted'>Для каждой темы Vectara выбирает релевантные посты и показывает, у кого медианные метрики выше. Это помогает понять, где конкуренты сильнее именно по формату/смыслам.</div>"
+        + idx_info
+        + "</div>"
+        + "<div class='card'><div class='card-title'>Таблица по темам</div>"
+        + table_html
+        + "</div>"
+    )
+
+
 def _ollama_chat_json(*, base_url: str, model: str, messages: list[dict[str, str]], timeout: int = 120) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/api/chat"
     body = {
         "model": model,
         "messages": messages,
         "stream": False,
+        "format": "json",
         "options": {"temperature": 0.2},
     }
     data = json.dumps(body).encode("utf-8")
@@ -1636,7 +1939,423 @@ def _ollama_json_call(
             + "Проверь, что в JSON есть ключи: "
             + ", ".join(required_keys)
         )
-    return last
+    raise RuntimeError(
+        "LLM returned invalid JSON (missing required keys). "
+        f"required={required_keys}; last_keys={list(last.keys()) if isinstance(last, dict) else type(last)}"
+    )
+
+
+def _vectara_is_enabled(cfg: Config) -> bool:
+    return bool(cfg.vectara_enabled and cfg.vectara_customer_id and cfg.vectara_corpus_key and cfg.vectara_api_key)
+
+
+def _vectara_headers(cfg: Config) -> dict[str, str]:
+    # Personal API key auth:
+    # - customer-id: your customer id
+    # - x-api-key: personal or service key
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "customer-id": str(cfg.vectara_customer_id),
+        "x-api-key": str(cfg.vectara_api_key),
+    }
+
+
+def _vectara_doc_id(item_key: str) -> str:
+    # Stable unique id per IG item.
+    h = hashlib.sha1(item_key.encode("utf-8")).hexdigest()  # 40 chars
+    return f"ig_{h}"
+
+
+def _vectara_post_json(*, url: str, body: dict[str, Any], headers: dict[str, str], timeout: int = 30) -> dict[str, Any]:
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(url=url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        # Do NOT include any credentials in error messages.
+        raise RuntimeError(f"Vectara HTTPError {e.code}: {raw[:500]}") from e
+    except Exception as e:
+        raise RuntimeError(f"Vectara request failed: {e}") from e
+
+
+def _vectara_get_json(*, url: str, headers: dict[str, str], timeout: int = 30) -> dict[str, Any]:
+    req = urllib.request.Request(url=url, method="GET", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        raise RuntimeError(f"Vectara HTTPError {e.code}: {raw[:500]}") from e
+    except Exception as e:
+        raise RuntimeError(f"Vectara request failed: {e}") from e
+
+
+def _vectara_index_one(
+    *,
+    cfg: Config,
+    doc_id: str,
+    text: str,
+    context: str,
+    metadata: dict[str, Any],
+    timeout: int = 30,
+) -> None:
+    """
+    Index one IG post into Vectara corpus as a core document with 1 part.
+
+    We try a couple of request shapes for compatibility with potential API changes.
+    """
+    base = cfg.vectara_base_url.rstrip("/")
+    url = f"{base}/v2/corpora/{urllib.parse.quote(cfg.vectara_corpus_key)}/documents"
+    headers = _vectara_headers(cfg)
+
+    doc = {
+        "id": doc_id,
+        "metadata": metadata,
+        "document_parts": [
+            {
+                "text": text or "",
+                "context": context or "",
+                "metadata": metadata,
+            }
+        ],
+    }
+
+    attempts: list[dict[str, Any]] = [
+        {"type": "core", **doc},
+        {"type": "core", "document": doc},
+        {"type": "core", "core_document": doc},
+    ]
+    last_err: Optional[Exception] = None
+    for body in attempts:
+        try:
+            _vectara_post_json(url=url, body=body, headers=headers, timeout=timeout)
+            return
+        except Exception as e:
+            last_err = e
+            # ALREADY_EXISTS or conflict should be treated as success for idempotency
+            msg = str(e)
+            if "409" in msg or "ALREADY_EXISTS" in msg or "already exists" in msg.lower():
+                return
+    raise RuntimeError(f"Vectara indexing failed: {last_err}")
+
+
+def _vectara_sync_index(
+    *,
+    conn: sqlite3.Connection,
+    cfg: Config,
+    rows: list[tuple[Any, ...]],
+    timeout: int = 30,
+    sleep_seconds: float = 0.05,
+) -> dict[str, Any]:
+    """
+    Incrementally index posts in `rows` into Vectara.
+    Uses `vectara_index_cache` to avoid re-indexing.
+    """
+    if not _vectara_is_enabled(cfg):
+        return {"enabled": False, "reason": "vectara not configured", "indexed": 0, "skipped": 0}
+    if not cfg.vectara_index:
+        return {"enabled": True, "reason": "vectara indexing disabled", "indexed": 0, "skipped": 0}
+
+    # rows tuples: (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
+    item_keys: list[str] = []
+    for r in rows:
+        key = str(r[5] or "").strip() or str(r[6] or "").strip()
+        if key:
+            item_keys.append(key)
+    item_keys = list(dict.fromkeys(item_keys))  # preserve order, unique
+
+    existing: set[str] = set()
+    if item_keys:
+        # SQLite has a limit on the number of host parameters. Keep it safe.
+        chunk_size = 800
+        for chunk in _chunked(item_keys, chunk_size):
+            q = f"SELECT item_key FROM vectara_index_cache WHERE item_key IN ({','.join(['?'] * len(chunk))})"
+            for (k,) in conn.execute(q, chunk).fetchall():
+                existing.add(str(k))
+
+    indexed = 0
+    skipped = 0
+    now = _utc_now().isoformat()
+    for r in rows:
+        profile_label = str(r[0] or "")
+        profile_url = str(r[1] or "")
+        kind = str(r[2] or "")
+        media_type = str(r[3] or "")
+        ts = str(r[4] or "")
+        url = str(r[5] or "").strip()
+        short_code = str(r[6] or "").strip()
+        likes = _to_int(r[7])
+        comments = _to_int(r[8])
+        views = _to_int(r[9])
+        caption = str(r[10] or "").replace("\n", " ").strip()
+        if len(caption) > 800:
+            caption = caption[:799] + "…"
+
+        item_key = url or short_code
+        if not item_key:
+            skipped += 1
+            continue
+        if item_key in existing:
+            skipped += 1
+            continue
+
+        doc_id = _vectara_doc_id(item_key)
+        md = {
+            "profile": profile_label,
+            "profile_url": profile_url,
+            "url": url or "",
+            "short_code": short_code or "",
+            "timestamp_utc": ts,
+            "kind": kind,
+            "media_type": media_type,
+            "likes": (None if likes is None or likes < 0 else likes),
+            "comments": (None if comments is None or comments < 0 else comments),
+            "views": (None if views is None or views < 0 else views),
+            "source": "instagram",
+        }
+        context = f"{profile_label} {kind} {media_type} {ts} {url}"
+        # Always include profile in text to enable filtering-less retrieval.
+        text = f"[{profile_label}] {caption}".strip()
+
+        _vectara_index_one(cfg=cfg, doc_id=doc_id, text=text, context=context, metadata=md, timeout=timeout)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO vectara_index_cache(item_key, vectara_doc_id, profile_label, profile_url, indexed_at_utc)
+            VALUES(?, ?, ?, ?, ?)
+            """,
+            (item_key, doc_id, profile_label, profile_url, now),
+        )
+        conn.commit()
+        indexed += 1
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+    return {"enabled": True, "indexed": indexed, "skipped": skipped}
+
+
+def _vectara_meta_to_dict(v: Any) -> dict[str, Any]:
+    if v is None:
+        return {}
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, list):
+        out: dict[str, Any] = {}
+        for it in v:
+            if not isinstance(it, dict):
+                continue
+            k = it.get("name") or it.get("key") or it.get("field") or it.get("type")
+            if not k:
+                continue
+            if "value" in it:
+                out[str(k)] = it.get("value")
+            elif "values" in it:
+                out[str(k)] = it.get("values")
+            else:
+                # last resort: keep the dict
+                out[str(k)] = it
+        return out
+    return {}
+
+
+def _vectara_extract_results(resp: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Normalize Vectara query response to a list of:
+    {text, score, doc_id, part_metadata, document_metadata}
+    """
+    if not isinstance(resp, dict):
+        return []
+
+    # Try a few common shapes
+    candidates = []
+    for path in [
+        ("search_results",),
+        ("results",),
+        ("response", "results"),
+        ("response", "search_results"),
+        ("result", "results"),
+        ("result", "search_results"),
+    ]:
+        cur: Any = resp
+        ok = True
+        for p in path:
+            if not isinstance(cur, dict) or p not in cur:
+                ok = False
+                break
+            cur = cur[p]
+        if ok and isinstance(cur, list):
+            candidates = cur
+            break
+
+    out = []
+    for r in candidates:
+        if not isinstance(r, dict):
+            continue
+        text = r.get("result_text") or r.get("text") or r.get("snippet") or ""
+        score = r.get("score")
+        doc_id = r.get("document_id") or r.get("doc_id") or r.get("id") or ""
+        part_md = _vectara_meta_to_dict(r.get("part_metadata") or r.get("metadata"))
+        doc_md = _vectara_meta_to_dict(r.get("document_metadata") or r.get("doc_metadata"))
+        out.append({"text": text, "score": score, "doc_id": doc_id, "part_metadata": part_md, "document_metadata": doc_md, "raw": r})
+    return out
+
+
+def _vectara_query_simple(*, cfg: Config, query: str, limit: int = 20, timeout: int = 30) -> list[dict[str, Any]]:
+    """
+    Use the simple single-corpus endpoint (GET).
+    We try both `query` and `q` parameter names for robustness.
+    """
+    if not _vectara_is_enabled(cfg):
+        return []
+    base = cfg.vectara_base_url.rstrip("/")
+    corpus = urllib.parse.quote(cfg.vectara_corpus_key)
+    headers = _vectara_headers(cfg)
+
+    def call(params: dict[str, Any]) -> dict[str, Any]:
+        qs = urllib.parse.urlencode(params)
+        url = f"{base}/v2/corpora/{corpus}/query?{qs}"
+        return _vectara_get_json(url=url, headers=headers, timeout=timeout)
+
+    try:
+        resp = call({"query": query, "limit": int(limit)})
+    except Exception:
+        resp = call({"q": query, "limit": int(limit)})
+    return _vectara_extract_results(resp)
+
+
+def _vectara_theme_benchmark(
+    *,
+    cfg: Config,
+    baseline_profile: str,
+    limit: int,
+) -> dict[str, Any]:
+    """
+    Semantic theme benchmark across all indexed posts.
+    Returns dict with columns + rows for HTML/CSV.
+    """
+    themes = [
+        {"theme": "Отзывы / доверие", "query": "отзыв пациента результат лечения впечатления благодарность"},
+        {"theme": "Врач / экспертность", "query": "врач отвечает консультация экспертное мнение рекомендации"},
+        {"theme": "Разбор случая", "query": "клинический случай разбор история пациента диагноз лечение"},
+        {"theme": "Процедура: как проходит", "query": "как проходит процедура подготовка этапы реабилитация"},
+        {"theme": "Цены / прозрачность", "query": "стоимость цена сколько стоит акция скидка рассрочка"},
+        {"theme": "Оборудование / технологии", "query": "оборудование аппарат технология современное лечение"},
+        {"theme": "Команда / закулисье", "query": "команда врачи клиника день из жизни закулисье"},
+        {"theme": "Профилактика / полезное", "query": "профилактика советы симптомы когда обращаться"},
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for t in themes:
+        q = t["query"]
+        results = _vectara_query_simple(cfg=cfg, query=q, limit=limit)
+        # group by profile (from metadata)
+        by_prof: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for r in results:
+            md = (r.get("document_metadata") or {}) | (r.get("part_metadata") or {})
+            prof = str(md.get("profile") or "").strip()
+            url = str(md.get("url") or "").strip()
+            likes = _to_int(md.get("likes"))
+            views = _to_int(md.get("views"))
+            if likes is not None and likes < 0:
+                likes = None
+            if views is not None and views < 0:
+                views = None
+            if not prof:
+                # fallback: try to infer profile from bracketed prefix in text
+                txt = str(r.get("text") or "")
+                m = re.match(r"\\[(.*?)\\]\\s+", txt)
+                if m:
+                    prof = m.group(1).strip()
+            if not prof:
+                continue
+            by_prof[prof].append({"url": url, "likes": likes, "views": views})
+
+        def median(vals: list[int]) -> Optional[float]:
+            v = [x for x in vals if x is not None]
+            return float(statistics.median(v)) if v else None
+
+        stats: list[dict[str, Any]] = []
+        for prof, items in by_prof.items():
+            likes_vals = [x.get("likes") for x in items if x.get("likes") is not None]
+            views_vals = [x.get("views") for x in items if x.get("views") is not None]
+            stats.append(
+                {
+                    "profile": prof,
+                    "n": len(items),
+                    "likes_median": median(likes_vals),
+                    "views_median": median(views_vals),
+                    "examples": [x.get("url") for x in sorted(items, key=lambda z: (z.get("views") or 0, z.get("likes") or 0), reverse=True) if x.get("url")][:3],
+                }
+            )
+
+        # select leader by views_median, fallback likes_median
+        stats_sorted = sorted(
+            stats,
+            key=lambda x: (
+                x.get("views_median") if x.get("views_median") is not None else -1,
+                x.get("likes_median") if x.get("likes_median") is not None else -1,
+                x.get("n") or 0,
+            ),
+            reverse=True,
+        )
+        leader = stats_sorted[0] if stats_sorted else {}
+        baseline = next((s for s in stats if s.get("profile") == baseline_profile), {})
+
+        rows.append(
+            {
+                "theme": t["theme"],
+                "leader_profile": leader.get("profile", ""),
+                "leader_n": leader.get("n", ""),
+                "leader_views_median": leader.get("views_median", ""),
+                "leader_likes_median": leader.get("likes_median", ""),
+                "baseline_profile": baseline_profile,
+                "baseline_n": baseline.get("n", ""),
+                "baseline_views_median": baseline.get("views_median", ""),
+                "baseline_likes_median": baseline.get("likes_median", ""),
+                "leader_examples": "; ".join([u for u in (leader.get("examples") or []) if u]),
+            }
+        )
+
+    columns = [
+        "theme",
+        "leader_profile",
+        "leader_n",
+        "leader_views_median",
+        "leader_likes_median",
+        "baseline_profile",
+        "baseline_n",
+        "baseline_views_median",
+        "baseline_likes_median",
+        "leader_examples",
+    ]
+    return {"columns": columns, "rows": rows}
+
+
+def _write_vectara_themes_csv(path: Path, bench: dict[str, Any]) -> None:
+    cols = bench.get("columns") or []
+    rows = bench.get("rows") or []
+    if not cols or not isinstance(cols, list):
+        cols = []
+    if not isinstance(rows, list):
+        rows = []
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            if isinstance(r, dict):
+                w.writerow({c: r.get(c, "") for c in cols})
 
 
 def _write_llm_benchmark_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -1647,24 +2366,390 @@ def _write_llm_benchmark_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "posts_count",
         "reels_count",
         "posts_per_week",
+        "media_mix",
         "likes_avg",
         "likes_median",
         "likes_p75",
+        "likes_p90",
         "comments_avg",
         "views_avg",
         "views_median",
         "views_p75",
+        "views_p90",
+        "video_views_avg",
+        "video_likes_avg",
         "positioning",
         "top_pillars",
         "strengths",
         "gaps",
         "priority_actions",
+        "llm_error",
     ]
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
         for r in rows:
             w.writerow({c: r.get(c, "") for c in cols})
+
+
+def _write_vs_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    cols = [
+        "competitor",
+        "baseline",
+        "posts_per_week_ratio",
+        "likes_median_ratio",
+        "likes_p75_ratio",
+        "comments_avg_ratio",
+        "views_median_ratio",
+        "views_p75_ratio",
+        "top_advantages",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow({c: r.get(c, "") for c in cols})
+
+
+def _num(x: Any) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        if isinstance(x, bool):
+            return None
+        return float(x)
+    except Exception:
+        s = str(x).strip().replace(",", ".")
+        if not s:
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+
+def _ratio(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    # a / b
+    if a is None or b in (None, 0.0):
+        return None
+    return a / b
+
+
+def _top_posts_for_profile(all_rows: list[tuple[Any, ...]], profile: str, k: int = 2) -> dict[str, list[dict[str, Any]]]:
+    # all_rows tuples: (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
+    items = [r for r in all_rows if str(r[0] or "") == profile]
+
+    def row_to_post(r):
+        caption = str(r[10] or "").replace("\n", " ").strip()
+        if len(caption) > 200:
+            caption = caption[:199] + "…"
+        return {
+            "url": str(r[5] or ""),
+            "timestamp_utc": str(r[4] or ""),
+            "kind": str(r[2] or ""),
+            "media_type": str(r[3] or ""),
+            "likes": (lambda v: (None if (v is None or v < 0) else v))(_to_int(r[7])),
+            "comments": (lambda v: (None if (v is None or v < 0) else v))(_to_int(r[8])),
+            "views": (lambda v: (None if (v is None or v < 0) else v))(_to_int(r[9])),
+            "caption": caption,
+        }
+
+    likes_sorted = sorted(items, key=lambda r: (_to_int(r[7]) if (_to_int(r[7]) is not None and _to_int(r[7]) >= 0) else -1), reverse=True)
+    views_sorted = sorted(items, key=lambda r: (_to_int(r[9]) if (_to_int(r[9]) is not None and _to_int(r[9]) >= 0) else -1), reverse=True)
+    return {
+        "top_by_likes": [row_to_post(r) for r in likes_sorted[:k]],
+        "top_by_views": [row_to_post(r) for r in views_sorted[:k]],
+    }
+
+
+def _pick_baseline_profile(bench_rows: list[dict[str, Any]], baseline: str) -> str:
+    b = (baseline or "").strip().lower()
+    if not bench_rows:
+        return baseline
+    # If user passed a URL - match by profile_url
+    if b.startswith("http"):
+        b_url = _normalize_profile_url(baseline)
+        for r in bench_rows:
+            if _normalize_profile_url(str(r.get("profile_url") or "")) == b_url:
+                return str(r.get("profile") or baseline)
+    # exact match first
+    for r in bench_rows:
+        p = str(r.get("profile") or "")
+        if p.lower() == b:
+            return p
+    # match by profile_url substring (e.g. "kravira.by")
+    for r in bench_rows:
+        u = str(r.get("profile_url") or "").lower()
+        if b and b in u:
+            return str(r.get("profile") or baseline)
+    # substring match
+    for r in bench_rows:
+        p = str(r.get("profile") or "")
+        if b and b in p.lower():
+            return p
+    # default: first row
+    return str(bench_rows[0].get("profile") or baseline)
+
+
+def _pick_baseline_from_rows(rows: list[tuple[Any, ...]], baseline: str) -> str:
+    """
+    Pick baseline label from raw DB rows when benchmark rows are not available.
+    rows tuples start with profile_label, profile_url.
+    """
+    b = (baseline or "").strip().lower()
+    if not rows:
+        return baseline
+    labels = []
+    urls = []
+    for r in rows:
+        labels.append(str(r[0] or ""))
+        urls.append(str(r[1] or ""))
+    # exact label match
+    for lab in labels:
+        if lab.lower() == b:
+            return lab
+    # match by URL substring
+    for lab, u in zip(labels, urls):
+        if b and b in (u or "").lower():
+            return lab
+    # substring label match
+    for lab in labels:
+        if b and b in lab.lower():
+            return lab
+    # default: first label
+    return labels[0] or baseline
+
+
+def _build_vs_baseline(
+    *,
+    base_url: str,
+    model: str,
+    timeout_seconds: int,
+    baseline: str,
+    bench_rows: list[dict[str, Any]],
+    all_rows: list[tuple[Any, ...]],
+    start_s: str,
+    end_s: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Строим сравнение всех центров с baseline (обычно kravira.by) и даём рекомендации для baseline,
+    основанные на сильных сторонах конкурентов.
+    """
+    if not bench_rows:
+        raise RuntimeError("Нет bench_rows для сравнения")
+
+    baseline_profile = _pick_baseline_profile(bench_rows, baseline)
+    idx = {str(r.get("profile") or ""): r for r in bench_rows}
+    base = idx.get(baseline_profile)
+    if not base:
+        raise RuntimeError(f"Не найден baseline профиль '{baseline_profile}' в bench_rows")
+
+    base_metrics = {
+        "posts_per_week": _num(base.get("posts_per_week")),
+        "likes_median": _num(base.get("likes_median")),
+        "likes_p75": _num(base.get("likes_p75")),
+        "comments_avg": _num(base.get("comments_avg")),
+        "views_median": _num(base.get("views_median")),
+        "views_p75": _num(base.get("views_p75")),
+    }
+
+    vs_rows: list[dict[str, Any]] = []
+    for prof, r in idx.items():
+        if not prof or prof == baseline_profile:
+            continue
+        m = {
+            "posts_per_week": _num(r.get("posts_per_week")),
+            "likes_median": _num(r.get("likes_median")),
+            "likes_p75": _num(r.get("likes_p75")),
+            "comments_avg": _num(r.get("comments_avg")),
+            "views_median": _num(r.get("views_median")),
+            "views_p75": _num(r.get("views_p75")),
+        }
+        ratios = {
+            k: _ratio(m.get(k), base_metrics.get(k))
+            for k in ("posts_per_week", "likes_median", "likes_p75", "comments_avg", "views_median", "views_p75")
+        }
+        # pick top advantages (only where competitor is clearly better than baseline)
+        adv = sorted(
+            [(k, v) for k, v in ratios.items() if v is not None and v >= 1.15],
+            key=lambda t: t[1],
+            reverse=True,
+        )[:4]
+        top_advantages = "; ".join([f"{k}×{v:.2f}" for k, v in adv if v is not None])
+
+        def fmt(v: Optional[float]) -> str:
+            return "" if v is None else f"{v:.2f}"
+
+        vs_rows.append(
+            {
+                "competitor": prof,
+                "baseline": baseline_profile,
+                "posts_per_week_ratio": fmt(ratios.get("posts_per_week")),
+                "likes_median_ratio": fmt(ratios.get("likes_median")),
+                "likes_p75_ratio": fmt(ratios.get("likes_p75")),
+                "comments_avg_ratio": fmt(ratios.get("comments_avg")),
+                "views_median_ratio": fmt(ratios.get("views_median")),
+                "views_p75_ratio": fmt(ratios.get("views_p75")),
+                "top_advantages": top_advantages,
+            }
+        )
+
+    # LLM: per-competitor (smaller prompts, more robust for small local models)
+    baseline_posts = _top_posts_for_profile(all_rows, baseline_profile, k=2)
+    comparisons: list[dict[str, Any]] = []
+    for row in sorted(vs_rows, key=lambda x: x.get("top_advantages", ""), reverse=True):
+        comp = row["competitor"]
+        comp_posts = _top_posts_for_profile(all_rows, comp, k=2)
+        # Recompute numeric advantages with baseline/competitor values (for LLM clarity)
+        r_comp = idx.get(comp, {})
+        m_comp = {
+            "posts_per_week": _num(r_comp.get("posts_per_week")),
+            "likes_median": _num(r_comp.get("likes_median")),
+            "likes_p75": _num(r_comp.get("likes_p75")),
+            "comments_avg": _num(r_comp.get("comments_avg")),
+            "views_median": _num(r_comp.get("views_median")),
+            "views_p75": _num(r_comp.get("views_p75")),
+        }
+        adv_list = []
+        for key in ("views_p75", "views_median", "likes_p75", "likes_median", "comments_avg", "posts_per_week"):
+            rr = _ratio(m_comp.get(key), base_metrics.get(key))
+            if rr is not None and rr >= 1.15:
+                adv_list.append(
+                    {
+                        "metric": key,
+                        "baseline": base_metrics.get(key),
+                        "competitor": m_comp.get(key),
+                        "ratio": round(rr, 2),
+                    }
+                )
+
+        system_comp = (
+            "Ты senior performance маркетолог Instagram для медицинских центров. "
+            "Сравни competitor с baseline и дай рекомендации ИМЕННО для baseline, чему научиться у competitor. "
+            "Пиши по-русски, без хэштегов и без @упоминаний, без английских слов/фраз. "
+            "Фокусируйся ТОЛЬКО на преимуществах competitor (advantages). Если advantages пуст — напиши, что явных преимуществ нет. "
+            "Используй для примеров ТОЛЬКО URL постов из top_posts (не ссылку на профиль). "
+            "Отвечай строго JSON: "
+            '{"competitor":"","where_competitor_better":["..."],'
+            '"what_they_do_better":["..."],'
+            '"recommendations_for_baseline":[{"initiative":"","why":"","how":"","kpi":"","evidence_urls":["..."]}]}'
+        )
+        user_comp = {
+            "period": f"{start_s}..{end_s} (UTC, end-exclusive)",
+            "baseline": {"profile": baseline_profile, "benchmark": base, "top_posts": baseline_posts},
+            "competitor": {"profile": comp, "benchmark": idx.get(comp, {}), "vs_ratios": row, "top_posts": comp_posts},
+            "advantages": adv_list,
+        }
+        if not adv_list:
+            comparisons.append(
+                {
+                    "competitor": comp,
+                    "where_competitor_better": [],
+                    "what_they_do_better": ["явных преимуществ по метрикам относительно baseline не найдено"],
+                    "recommendations_for_baseline": [],
+                }
+            )
+            continue
+        try:
+            comp_json = _ollama_json_call(
+                base_url=base_url,
+                model=model,
+                system=system_comp,
+                user_obj=user_comp,
+                required_keys=["competitor", "where_competitor_better", "recommendations_for_baseline"],
+                timeout=max(30, int(timeout_seconds)),
+                retries=1,
+            )
+        except Exception as e:
+            comp_json = {"competitor": comp, "error": str(e), "where_competitor_better": [], "what_they_do_better": [], "recommendations_for_baseline": []}
+        # Post-process: ensure competitor name and at least some structured fields are present.
+        if not (comp_json.get("competitor") or "").strip():
+            comp_json["competitor"] = comp
+        # Prefer our computed advantages (less hallucination-prone).
+        if adv_list:
+            comp_json["where_competitor_better"] = [f"{a['metric']}×{a['ratio']}" for a in adv_list]
+        recs = comp_json.get("recommendations_for_baseline")
+        if not isinstance(recs, list):
+            recs = []
+        top_urls = []
+        try:
+            top_urls = [p.get("url") for p in (comp_posts.get("top_by_views") or []) if isinstance(p, dict) and p.get("url")] + [
+                p.get("url") for p in (comp_posts.get("top_by_likes") or []) if isinstance(p, dict) and p.get("url")
+            ]
+            top_urls = [u for u in top_urls if u]
+        except Exception:
+            top_urls = []
+        for r in recs:
+            if not isinstance(r, dict):
+                continue
+            if not (r.get("kpi") or "").strip() and adv_list:
+                r["kpi"] = adv_list[0]["metric"]
+            ev = r.get("evidence_urls")
+            valid_posts: list[str] = []
+            if isinstance(ev, list):
+                for x in ev:
+                    u = str(x or "").strip()
+                    if u and ("/p/" in u or "/reel/" in u):
+                        valid_posts.append(u)
+            if not valid_posts:
+                valid_posts = top_urls[:3]
+            r["evidence_urls"] = valid_posts
+        comp_json["recommendations_for_baseline"] = recs
+        comparisons.append(comp_json)
+
+    # Synthesize baseline plan (short prompt)
+    system_plan = (
+        "Ты senior performance маркетолог. "
+        "На входе сравнения baseline с конкурентами и их рекомендации. "
+        "Собери общий план для baseline на 30 дней (P1..P3) и ключевые выводы. "
+        "Пиши по-русски, без хэштегов и без @упоминаний, без английских слов/фраз. "
+        "Отвечай строго JSON: "
+        '{"baseline_30d_plan":[{"priority":"P1","initiative":"","hypothesis":"","test":"","success_metric":"","expected_impact":""}],"global_takeaways":["..."]}'
+    )
+    try:
+        plan_json = _ollama_json_call(
+            base_url=base_url,
+            model=model,
+            system=system_plan,
+            user_obj={"baseline": baseline_profile, "comparisons": comparisons},
+            required_keys=["baseline_30d_plan", "global_takeaways"],
+            timeout=max(30, int(timeout_seconds)),
+            retries=1,
+        )
+    except Exception as e:
+        plan_json = {"baseline_30d_plan": [], "global_takeaways": [], "error": str(e)}
+
+    vs_payload = {
+        "baseline": baseline_profile,
+        "vs_table": vs_rows,
+        "comparisons": comparisons,
+        "baseline_30d_plan": plan_json.get("baseline_30d_plan") or [],
+        "global_takeaways": plan_json.get("global_takeaways") or [],
+    }
+    # Fallback: if the model returned an empty plan, build a minimal one from extracted recommendations.
+    plan = vs_payload.get("baseline_30d_plan") or []
+    if not isinstance(plan, list) or not any(isinstance(x, dict) and (x.get("initiative") or "").strip() for x in plan):
+        recs: list[dict[str, Any]] = []
+        for c in comparisons:
+            for r in (c.get("recommendations_for_baseline") or [])[:2]:
+                if isinstance(r, dict):
+                    recs.append(r)
+        built = []
+        for i, r in enumerate(recs[:3], start=1):
+            built.append(
+                {
+                    "priority": f"P{i}",
+                    "initiative": (r.get("initiative") or "").strip(),
+                    "hypothesis": (r.get("why") or "").strip(),
+                    "test": (r.get("how") or "").strip(),
+                    "success_metric": (r.get("kpi") or "").strip(),
+                    "expected_impact": "рост метрики по выбранному KPI",
+                }
+            )
+        vs_payload["baseline_30d_plan"] = built
+        if not vs_payload.get("global_takeaways"):
+            vs_payload["global_takeaways"] = ["План собран из сильных сторон конкурентов; см. таблицу преимуществ и примеры постов."]
+    return vs_payload, vs_rows
 
 
 def _build_llm_insights(
@@ -1715,10 +2800,17 @@ def _build_llm_insights(
             likes = _to_int(r[7])
             comments = _to_int(r[8])
             views = _to_int(r[9])
+            # Some scrapers return -1 when a metric is hidden/unavailable.
+            if likes is not None and likes < 0:
+                likes = None
+            if comments is not None and comments < 0:
+                comments = None
+            if views is not None and views < 0:
+                views = None
             # For LLM: keep captions short to fit context even with many posts.
             caption = str(r[10] or "").replace("\n", " ").strip()
-            if len(caption) > 240:
-                caption = caption[:239] + "…"
+            if len(caption) > 160:
+                caption = caption[:159] + "…"
 
             if kind == "reel":
                 reels_count += 1
@@ -1810,6 +2902,7 @@ def _build_llm_insights(
                     "и признаки того, что влияет на метрики. "
                     "Пиши по-русски, профессионально и кратко. "
                     "Запрещено: хэштеги (#...), упоминания (@...), английские слова/фразы (если это не название бренда). "
+                    "Если не уверен — верни пустые массивы, но ключи JSON обязаны быть. "
                     "Отвечай СТРОГО JSON объектом вида: "
                     '{"pillars":[{"pillar":"","intent":"","audience":"","count_est":0,"examples":["url1","url2"]}],'
                     '"drivers":["..."],"gaps":["..."],"strengths":["..."],'
@@ -1830,7 +2923,7 @@ def _build_llm_insights(
                         user_obj=user,
                         required_keys=["pillars", "drivers", "gaps", "strengths"],
                         timeout=max(30, int(timeout_seconds)),
-                        retries=1,
+                        retries=2,
                     )
                 )
 
@@ -1840,6 +2933,8 @@ def _build_llm_insights(
                 "драйверы метрик, сильные стороны, пробелы/риски, и план тестов на 30 дней (P1..P3). "
                 "Опирайся на KPI и примеры top-постов (URL) и формат (media_type). "
                 "Запрещено: хэштеги (#...), упоминания (@...), английские слова/фразы (если это не название бренда). "
+                "Если не уверен — заполни ключи максимально безопасно (пустые массивы/пустые строки), "
+                "но ключи JSON обязаны быть. "
                 "Отвечай строго JSON объектом вида: "
                 '{"positioning":"","audience":["..."],'
                 '"content_pillars":[{"pillar":"","share_pct":0,"best_formats":["reel","post"],"evidence":"","example_urls":["..."]}],'
@@ -1861,7 +2956,7 @@ def _build_llm_insights(
                 user_obj=user_final,
                 required_keys=["positioning", "content_pillars", "action_plan_30d", "strengths", "gaps"],
                 timeout=max(30, int(timeout_seconds)),
-                retries=1,
+                retries=2,
             )
 
             if polish:
@@ -1899,6 +2994,7 @@ def _build_llm_insights(
             "gaps": parsed.get("gaps") or [],
             "action_plan_30d": parsed.get("action_plan_30d") or [],
             "notes": (parsed.get("notes") or []) + (["views есть не у всех постов"] if not views_vals else []),
+            "llm_error": parsed.get("error") or "",
         }
         profile_outputs.append(prof_out)
 
@@ -1934,18 +3030,24 @@ def _build_llm_insights(
                 "posts_count": kpis.get("posts_count", ""),
                 "reels_count": kpis.get("reels_count", ""),
                 "posts_per_week": kpis.get("posts_per_week", ""),
+                "media_mix": json.dumps(kpis.get("media_mix") or {}, ensure_ascii=False),
                 "likes_avg": kpis.get("likes_avg", ""),
                 "likes_median": kpis.get("likes_median", ""),
                 "likes_p75": kpis.get("likes_p75", ""),
+                "likes_p90": kpis.get("likes_p90", ""),
                 "comments_avg": kpis.get("comments_avg", ""),
                 "views_avg": kpis.get("views_avg", ""),
                 "views_median": kpis.get("views_median", ""),
                 "views_p75": kpis.get("views_p75", ""),
+                "views_p90": kpis.get("views_p90", ""),
+                "video_views_avg": kpis.get("video_views_avg", ""),
+                "video_likes_avg": kpis.get("video_likes_avg", ""),
                 "positioning": prof_out.get("positioning", ""),
                 "top_pillars": top_pillars,
                 "strengths": strengths,
                 "gaps": gaps,
                 "priority_actions": actions,
+                "llm_error": prof_out.get("llm_error", ""),
             }
         )
 
@@ -1988,6 +3090,26 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     llm_max_posts = int(getattr(args, "llm_max_posts", None) or (os.environ.get("LLM_MAX_POSTS_PER_PROFILE") or 0))
     ollama_timeout = int(getattr(args, "ollama_timeout", None) or (os.environ.get("OLLAMA_TIMEOUT_SECONDS") or 180))
     llm_polish = bool(getattr(args, "llm_polish", False) or (os.environ.get("LLM_POLISH") or "").strip().lower() in {"1", "true", "yes", "on"})
+    baseline_profile = (getattr(args, "baseline", None) or (os.environ.get("BASELINE_PROFILE") or "kravira")).strip()
+
+    # Vectara (optional)
+    vectara_base_url = (os.environ.get("VECTARA_BASE_URL") or "https://api.vectara.io").strip()
+    vectara_customer_id = (getattr(args, "vectara_customer_id", None) or (os.environ.get("VECTARA_CUSTOMER_ID") or "")).strip()
+    vectara_corpus_key = (getattr(args, "vectara_corpus", None) or (os.environ.get("VECTARA_CORPUS_KEY") or "")).strip()
+    vectara_api_key = (os.environ.get("VECTARA_API_KEY") or "").strip()
+    vectara_theme_limit = int(getattr(args, "vectara_theme_limit", None) or (os.environ.get("VECTARA_THEME_LIMIT") or 40))
+
+    vectara_enabled_flag = getattr(args, "vectara", None)
+    vectara_disabled_flag = getattr(args, "no_vectara", None)
+    vectara_enabled = False
+    if vectara_enabled_flag:
+        vectara_enabled = True
+    elif vectara_disabled_flag:
+        vectara_enabled = False
+    else:
+        # auto: enable only if all required vars are present
+        vectara_enabled = bool(vectara_customer_id and vectara_corpus_key and vectara_api_key)
+    vectara_index = bool(getattr(args, "vectara_index", False) or (os.environ.get("VECTARA_INDEX") or "").strip().lower() in {"1", "true", "yes", "on"})
 
     refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
     if getattr(args, "update", False):
@@ -2014,6 +3136,14 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
         llm_max_posts_per_profile=max(0, llm_max_posts),
         ollama_timeout_seconds=max(30, ollama_timeout),
         llm_polish=llm_polish,
+        baseline_profile=baseline_profile,
+        vectara_base_url=vectara_base_url,
+        vectara_customer_id=vectara_customer_id,
+        vectara_api_key=vectara_api_key,
+        vectara_corpus_key=vectara_corpus_key,
+        vectara_enabled=vectara_enabled,
+        vectara_index=vectara_index or vectara_enabled,  # default: index when enabled
+        vectara_theme_limit=max(5, vectara_theme_limit),
     )
 
 
@@ -2031,6 +3161,14 @@ def main() -> int:
     parser.add_argument("--llm-max-posts", dest="llm_max_posts", type=int, default=0, help="Ограничение постов на профиль для LLM (0 = все)")
     parser.add_argument("--ollama-timeout", dest="ollama_timeout", type=int, default=180, help="Таймаут одного запроса к Ollama (сек)")
     parser.add_argument("--llm-polish", dest="llm_polish", action="store_true", help="Доп. проход редактора (может быть медленнее)")
+    parser.add_argument("--baseline", default=os.environ.get("BASELINE_PROFILE", "kravira"), help="С кем сравнивать всех (по умолчанию kravira)")
+    g = parser.add_mutually_exclusive_group()
+    g.add_argument("--vectara", action="store_true", help="Включить Vectara (поиск/бенчмарк по темам). По умолчанию auto если заданы env.")
+    g.add_argument("--no-vectara", dest="no_vectara", action="store_true", help="Отключить Vectara даже если env заданы.")
+    parser.add_argument("--vectara-corpus", dest="vectara_corpus", default=None, help="Vectara corpus_key (например crp_11). Можно задать через env VECTARA_CORPUS_KEY.")
+    parser.add_argument("--vectara-customer-id", dest="vectara_customer_id", default=None, help="Vectara customer-id. Можно задать через env VECTARA_CUSTOMER_ID.")
+    parser.add_argument("--vectara-index", dest="vectara_index", action="store_true", help="Принудительно индексировать новые посты в Vectara (иначе auto при включении).")
+    parser.add_argument("--vectara-theme-limit", dest="vectara_theme_limit", type=int, default=40, help="Сколько результатов брать из Vectara на одну тему (по умолчанию 40)")
     parser.add_argument(
         "--publish-dir",
         default=None,

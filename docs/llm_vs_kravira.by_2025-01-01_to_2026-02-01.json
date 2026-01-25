@@ -1,0 +1,236 @@
+{
+  "baseline": "kravira",
+  "vs_table": [
+    {
+      "competitor": "kaskad",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "1.00",
+      "likes_median_ratio": "1.58",
+      "likes_p75_ratio": "2.33",
+      "comments_avg_ratio": "0.46",
+      "views_median_ratio": "1.31",
+      "views_p75_ratio": "7.30",
+      "top_advantages": "views_p75×7.30; likes_p75×2.33; likes_median×1.58; views_median×1.31"
+    },
+    {
+      "competitor": "lode.med",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "1.08",
+      "likes_median_ratio": "2.94",
+      "likes_p75_ratio": "2.57",
+      "comments_avg_ratio": "1.33",
+      "views_median_ratio": "2.78",
+      "views_p75_ratio": "9.14",
+      "top_advantages": "views_p75×9.14; likes_median×2.94; views_median×2.78; likes_p75×2.57"
+    },
+    {
+      "competitor": "mercimed.by",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "1.00",
+      "likes_median_ratio": "3.37",
+      "likes_p75_ratio": "3.86",
+      "comments_avg_ratio": "13.18",
+      "views_median_ratio": "2.94",
+      "views_p75_ratio": "7.31",
+      "top_advantages": "comments_avg×13.18; views_p75×7.31; likes_p75×3.86; likes_median×3.37"
+    },
+    {
+      "competitor": "nordin.medcentr",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "1.05",
+      "likes_median_ratio": "0.94",
+      "likes_p75_ratio": "0.84",
+      "comments_avg_ratio": "7.59",
+      "views_median_ratio": "0.57",
+      "views_p75_ratio": "0.54",
+      "top_advantages": "comments_avg×7.59"
+    },
+    {
+      "competitor": "proud_clinic",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "0.97",
+      "likes_median_ratio": "1.31",
+      "likes_p75_ratio": "1.24",
+      "comments_avg_ratio": "2.69",
+      "views_median_ratio": "1.70",
+      "views_p75_ratio": "2.69",
+      "top_advantages": "comments_avg×2.69; views_p75×2.69; views_median×1.70; likes_median×1.31"
+    },
+    {
+      "competitor": "sante.by",
+      "baseline": "kravira",
+      "posts_per_week_ratio": "1.00",
+      "likes_median_ratio": "0.69",
+      "likes_p75_ratio": "0.44",
+      "comments_avg_ratio": "0.24",
+      "views_median_ratio": "0.49",
+      "views_p75_ratio": "0.66",
+      "top_advantages": ""
+    }
+  ],
+  "comparisons": [
+    {
+      "competitor": "lode.med",
+      "where_competitor_better": [
+        "views_p75×9.14",
+        "views_median×2.78",
+        "likes_p75×2.57",
+        "likes_median×2.94",
+        "comments_avg×1.33"
+      ],
+      "what_they_do_better": [
+        "В ЛОДЭ действует специальное предожение на программу магнитотерапии EMSELLA: ✅ комплекс из 6 сеансов со скидкой 10% ✅ комплекс из 10 сеансов со скидкой 15%. Запись по телефону 📞111 или в директ."
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "Развитие контент-пиллера «Контент-пиллеры»;",
+          "why": "",
+          "how": "",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DIBG7epNXb8/"
+          ]
+        },
+        {
+          "initiative": "Анализ аудитории «Аудитория»",
+          "why": "",
+          "how": "",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DIBG7epNXb8/",
+            "https://www.instagram.com/p/DQcBtH6jCcM/",
+            "https://www.instagram.com/p/DPyHU4TDMF-/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "kaskad",
+      "where_competitor_better": [
+        "views_p75×7.3",
+        "views_median×1.31",
+        "likes_p75×2.33",
+        "likes_median×1.58"
+      ],
+      "what_they_do_better": "Клиника Каскад имеет более высокие показатели просмотра видео, Likes и Median Likes, а также более высокую среднюю оценку просмотров видео.",
+      "recommendations_for_baseline": [
+        {
+          "initiative": "",
+          "why": "",
+          "how": "",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DGx3f-lN7kl/",
+            "https://www.instagram.com/p/DF742OHNWRx/",
+            "https://www.instagram.com/p/DLhy_AzoSWp/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "nordin.medcentr",
+      "where_competitor_better": [
+        "comments_avg×7.59"
+      ],
+      "what_they_do_better": [
+        "побольше комментариев"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "повысить качество контента",
+          "why": "комментарии на профиле «Нордин» больше, чем на профиле «Кравира»",
+          "how": "создать более интересный и информативный контент, который привлечет больше зрителей",
+          "kpi": "comments_avg",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DSR2AwzDGCz/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "proud_clinic",
+      "where_competitor_better": [
+        "views_p75×2.69",
+        "views_median×1.7",
+        "likes_p75×1.24",
+        "likes_median×1.31",
+        "comments_avg×2.69"
+      ],
+      "what_they_do_better": [
+        "показывает больше видеороликов; показывает больше септопластики; показывает больше липосакции"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "развить уникальное предложение комплексного обследования организма за два визита",
+          "why": "пroud_clinic показывает более высокие показатели views_p75, views_median и comments_avg",
+          "how": "создать аналогичный контент с учетом уникальных предложений proud_clinic; использовать видеоролики для привлечения внимания к контенту; улучшить качество контента на Instagram",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DK9NVu9oHQw/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "mercimed.by",
+      "where_competitor_better": [
+        "views_p75×7.31",
+        "views_median×2.94",
+        "likes_p75×3.86",
+        "likes_median×3.37",
+        "comments_avg×13.18"
+      ],
+      "what_they_do_better": [
+        "Клиника «Мерси» имеет более высокие показатели в таких метриках, как просмотр видео за 75% и просмотр видео за 90%; также показатели likes за 75% и likes за 90%, а также средний количество комментариев на пост; это говорит о том, что Клиника «Мерси» имеет более эффективный контент и привлекает больше зрителей."
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "Развить уникальный номер для записи на консультацию к врачу-флебологу",
+          "why": "Клинике «Мерси» уже есть такой номер, который привлекает больше клиентов; baseline может учиться от этого и разрабатывать свой собственный уникальный номер.",
+          "how": "Разработайте уникальный номер для записи на консультацию к врачу-флебологу, который будет привлекать больше клиентов.",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DJl8oJbthRR/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "sante.by",
+      "where_competitor_better": [],
+      "what_they_do_better": [
+        "явных преимуществ по метрикам относительно baseline не найдено"
+      ],
+      "recommendations_for_baseline": []
+    }
+  ],
+  "baseline_30d_plan": [
+    {
+      "priority": "P1",
+      "initiative": "Развитие контент-пиллера «Контент-пиллеры»;",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    },
+    {
+      "priority": "P2",
+      "initiative": "Анализ аудитории «Аудитория»",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    },
+    {
+      "priority": "P3",
+      "initiative": "Повышить качество контента",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    }
+  ],
+  "global_takeaways": [
+    "Контент-пиллеры должны быть развиты и анализироваться, чтобы понять аудиторию и привлечь больше зрителей. Качество контента должно быть повышено, чтобы привлечь больше клиентов."
+  ]
+}
