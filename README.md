@@ -1,13 +1,13 @@
-# Instagram: Apify‑скрапер (мульти‑профили + период + кэш + сводная таблица)
+# Instagram: Apify‑скрапер (мульти‑профили + период + кэш + LLM‑only анализ)
 
-Этот проект **использует только Apify** ([`apify/instagram-scraper`](https://apify.com/apify/instagram-scraper)) и умеет:
+Этот проект **использует Apify** ([`apify/instagram-scraper`](https://apify.com/apify/instagram-scraper)) и умеет:
 
 - скрапить **несколько Instagram профилей** из `targets.txt` (или `targets.csv`)
 - скрапить **за нужный период** (`start`..`end`, end-exclusive)
 - **проверять, появились ли новые публикации** и только тогда обновлять (режим `--refresh auto`)
 - обновлять метрики (лайки/комменты/просмотры) при перескрапе
-- делать **анализ тем по тексту/хэштегам**: где больше лайков/просмотров
-- собрать **общую таблицу** со всеми постами + **сводку/анализ по аккаунтам**
+- делать **анализ текстов и рекомендации только через LLM** (Ollama локально)
+- собрать **общую таблицу** со всеми постами + **сводку по аккаунтам**
 
 ## Что нужно
 
@@ -37,6 +37,12 @@ ollama pull llama3.2:3b
 ```
 
 LLM‑результат сохраняется в `output/llm_insights_<period>.json` и добавляется в HTML‑отчёт.
+
+Если Ollama временно недоступен, можно собрать только скрапинг + отчёт без LLM‑секции:
+
+```bash
+./.venv/bin/python ig_apify_scrape.py --analysis none --publish-dir docs
+```
 
 ## Файл целей (проще всего) — `targets.txt`
 
@@ -79,19 +85,17 @@ python3 ig_apify_scrape.py
 
 После выполнения появятся CSV:
 - `output/items_<start>_to_<end>.csv` — все посты/рилсы всех аккаунтов за период
-- `output/summary_<start>_to_<end>.csv` — сводка/анализ по аккаунтам за период
-- `output/topics_<start>_to_<end>.csv` — анализ тем (слова/хэштеги) и их лайки/просмотры
-- `output/clusters_<start>_to_<end>.csv` — “умные темы”: кластеры по совместной встречаемости в постах
-- `output/categories_<start>_to_<end>.csv` — “умные и понятные темы”: категории из `taxonomy.json`
+- `output/summary_<start>_to_<end>.csv` — сводка по аккаунтам за период
+- `output/llm_insights_<start>_to_<end>.json` — LLM‑анализ (темы + рекомендации)
 И HTML отчёт (локальная веб‑страница):
-- `output/report_<start>_to_<end>.html` — удобочитаемый отчёт с таблицами и графиками + ссылками на CSV
+- `output/report_<start>_to_<end>.html` — удобочитаемый отчёт с таблицами и графиками + ссылками на CSV/JSON
 
 ## Публикация отчёта “через интернет” (GitHub Pages)
 
 1) Сгенерировать и положить отчёт в `docs/`:
 
 ```bash
-./.venv/bin/python ig_apify_scrape.py --publish-dir docs
+./.venv/bin/python ig_apify_scrape.py --publish-dir docs --analysis llm
 ```
 
 2) На GitHub включить Pages: Settings → Pages → **Deploy from a branch** → Branch: `master`, Folder: `/docs`.

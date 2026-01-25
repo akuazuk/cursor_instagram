@@ -33,7 +33,9 @@ jobs:
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
-          python ig_apify_scrape.py --limit "${{ inputs.limit || '2000' }}" --publish-dir docs --refresh always
+          # GitHub runners don't have Ollama by default, so we publish without LLM analysis here.
+          # For LLM mode run locally: `ollama serve` + `python ig_apify_scrape.py --analysis llm --publish-dir docs`
+          python ig_apify_scrape.py --limit "${{ inputs.limit || '2000' }}" --publish-dir docs --refresh always --analysis none
 
       - name: Commit updated docs
         run: |

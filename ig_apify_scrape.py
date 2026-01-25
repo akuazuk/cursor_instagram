@@ -34,11 +34,12 @@ class Config:
     apify_base_url: str
     output_dir: Path
     db_path: Path
-    taxonomy_path: Path
     results_limit_per_type: int
     refresh_mode: str  # auto | always | never
     check_limit: int
-    analysis_mode: str  # heuristic | llm | both
+    analysis_mode: str  # llm | none
+    ollama_base_url: str
+    ollama_model: str
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -49,7 +50,6 @@ def _utc_now() -> datetime:
 
 def _parse_iso_dt(value: str) -> datetime:
     v = value.strip()
-    # "2024-02-13T20:49:57.000Z" -> +00:00
     if v.endswith("Z"):
         v = v[:-1] + "+00:00"
     dt = datetime.fromisoformat(v)
@@ -160,7 +160,6 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
 
 def _month_window_utc(d: date) -> tuple[date, date]:
     start = d.replace(day=1)
-    # first day of next month
     if start.month == 12:
         end = date(start.year + 1, 1, 1)
     else:
@@ -189,7 +188,6 @@ def _resolve_period(args: argparse.Namespace) -> tuple[date, date]:
         return start, end
 
     if args.end:
-        # end задан, start нет — по умолчанию возьмём начало месяца end
         end = date.fromisoformat(args.end)
         start, _ = _month_window_utc(end - timedelta(days=1))
         return start, end
@@ -209,7 +207,6 @@ def _resolve_period(args: argparse.Namespace) -> tuple[date, date]:
         return _month_window_utc(prev_last_day)
     if period == "last-30d":
         return today - timedelta(days=30), today + timedelta(days=1)
-
     raise SystemExit("Неизвестный --period. Используй: this-month | last-month | last-30d")
 
 
@@ -246,16 +243,7 @@ def _apify_request_json(
         raise RuntimeError(f"Apify network error: {e}") from e
 
 
-def _apify_run_actor_wait(
-    *,
-    cfg: Config,
-    actor_id: str,
-    run_input: dict[str, Any],
-) -> dict[str, Any]:
-    """
-    Запускает actor и ждёт завершения (polling).
-    Actor: apify~instagram-scraper (для apify/instagram-scraper)
-    """
+def _apify_run_actor_wait(*, cfg: Config, actor_id: str, run_input: dict[str, Any]) -> dict[str, Any]:
     started = _apify_request_json(
         base_url=cfg.apify_base_url,
         token=cfg.apify_token,
@@ -289,51 +277,21 @@ def _apify_run_actor_wait(
         time.sleep(cfg.apify_poll_interval_seconds)
 
 
-def _apify_iter_dataset_items(
-    *,
-    cfg: Config,
-    dataset_id: str,
-    page_limit: int = 1000,
-) -> Iterable[dict[str, Any]]:
+def _apify_iter_dataset_items(*, cfg: Config, dataset_id: str, page_limit: int = 1000) -> Iterable[dict[str, Any]]:
     offset = 0
     while True:
-        resp = _apify_request_json(
-            base_url=cfg.apify_base_url,
-            token=cfg.apify_token,
-            method="GET",
-            path=f"v2/datasets/{dataset_id}/items",
-            params={
-                "format": "json",
-                "clean": "true",
-                "offset": offset,
-                "limit": page_limit,
-            },
-            timeout=120,
-        )
-        # Апифай для /items?format=json возвращает список как JSON (не объект).
-        # Но через наш helper мы ожидаем dict. Поэтому пробуем распарсить иначе:
-        # Если resp не dict, этот код не сработает. Для надёжности сделаем второй путь через raw request ниже.
-        if isinstance(resp, list):  # type: ignore[unreachable]
-            items = resp
-        else:
-            # Некоторые окружения могут оборачивать в {"data": [...]}, обработаем и это.
-            items = resp.get("data") if isinstance(resp, dict) else None
-
-        if items is None:
-            # fallback: читать “сырым” способом
-            q = {
-                "token": cfg.apify_token,
-                "format": "json",
-                "clean": "true",
-                "offset": offset,
-                "limit": page_limit,
-            }
-            url = cfg.apify_base_url.rstrip("/") + f"/v2/datasets/{dataset_id}/items?" + urllib.parse.urlencode(q)
-            req = urllib.request.Request(url=url, method="GET", headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=120) as r:
-                raw = r.read().decode("utf-8")
-                items = json.loads(raw) if raw else []
-
+        q = {
+            "token": cfg.apify_token,
+            "format": "json",
+            "clean": "true",
+            "offset": offset,
+            "limit": page_limit,
+        }
+        url = cfg.apify_base_url.rstrip("/") + f"/v2/datasets/{dataset_id}/items?" + urllib.parse.urlencode(q)
+        req = urllib.request.Request(url=url, method="GET", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            raw = r.read().decode("utf-8")
+            items = json.loads(raw) if raw else []
         if not items:
             return
         for it in items:
@@ -341,13 +299,7 @@ def _apify_iter_dataset_items(
         offset += len(items)
 
 
-def _run_instagram_scraper(
-    profile_url: str,
-    results_type: str,
-    results_limit: int,
-    only_newer_than_utc: str,
-    cfg: Config,
-) -> dict[str, Any]:
+def _run_instagram_scraper(profile_url: str, results_type: str, results_limit: int, only_newer_than_utc: str, cfg: Config) -> dict[str, Any]:
     # Schema: https://apify.com/apify/instagram-scraper/input-schema
     actor_input: dict[str, Any] = {
         "directUrls": [profile_url],
@@ -356,9 +308,7 @@ def _run_instagram_scraper(
         "onlyPostsNewerThan": only_newer_than_utc,  # YYYY-MM-DD (UTC)
         "addParentData": False,
     }
-    # Actor id для API: apify~instagram-scraper
-    run = _apify_run_actor_wait(cfg=cfg, actor_id="apify~instagram-scraper", run_input=actor_input)
-    return run
+    return _apify_run_actor_wait(cfg=cfg, actor_id="apify~instagram-scraper", run_input=actor_input)
 
 
 def _content_kind_from_url(url: Optional[str]) -> str:
@@ -373,7 +323,6 @@ def _content_kind_from_url(url: Optional[str]) -> str:
 
 
 def _item_key(raw: dict[str, Any]) -> str:
-    # Prefer stable URL; fall back to shortCode/id
     u = (raw.get("url") or "").strip()
     if u:
         return u
@@ -404,11 +353,9 @@ def load_targets(path: Path, default_start: Optional[date], default_end: Optiona
 
     out: list[Target] = []
 
-    # TXT: по одной ссылке на строку (самый простой формат)
     if path.suffix.lower() in {".txt", ".list"}:
         if not default_start or not default_end:
             raise SystemExit("Для targets.txt нужно задать период через --start/--end или --period.")
-
         with path.open("r", encoding="utf-8") as f:
             for line in f:
                 s = line.strip()
@@ -417,8 +364,6 @@ def load_targets(path: Path, default_start: Optional[date], default_end: Optiona
                 profile_url = _normalize_profile_url(s)
                 label = _infer_handle(profile_url)
                 out.append(Target(profile_url=profile_url, label=label, start=default_start, end=default_end))
-
-    # CSV: расширенный формат
     else:
         with path.open("r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
@@ -447,7 +392,6 @@ def load_targets(path: Path, default_start: Optional[date], default_end: Optiona
 
                 out.append(Target(profile_url=profile_url, label=label, start=start, end=end))
 
-    # дедуп по URL
     dedup: dict[tuple[str, date, date], Target] = {}
     for t in out:
         dedup[(t.profile_url, t.start, t.end)] = t
@@ -563,13 +507,11 @@ def mark_cached_complete(conn: sqlite3.Connection, profile_url: str, start: date
 def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> dict[str, Any]:
     local_max = _local_max_ts(conn, target.profile_url, target.start, target.end)
 
-    # refresh logic
     if cfg.refresh_mode == "never":
         if is_cached_complete(conn, target.profile_url, target.start, target.end):
             return {"profile_url": target.profile_url, "label": target.label, "skipped": True, "reason": "cached", "inserted": 0}
 
     if cfg.refresh_mode == "auto":
-        # если нет локальных данных — скрапим
         if local_max is not None and is_cached_complete(conn, target.profile_url, target.start, target.end):
             remote_latest = _remote_latest_ts(cfg, target.profile_url, target.start, cfg.check_limit)
             _mark_checked(conn, target.profile_url, target.start, target.end, remote_latest=remote_latest, local_max=local_max)
@@ -584,14 +526,13 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
                     "inserted": 0,
                 }
 
-    # refresh_mode == always => всегда скрапим и обновляем метрики
     if cfg.refresh_mode == "always":
         remote_latest = _remote_latest_ts(cfg, target.profile_url, target.start, cfg.check_limit)
         _mark_checked(conn, target.profile_url, target.start, target.end, remote_latest=remote_latest, local_max=local_max)
 
     start_dt = datetime(target.start.year, target.start.month, target.start.day, tzinfo=timezone.utc)
     end_dt = datetime(target.end.year, target.end.month, target.end.day, tzinfo=timezone.utc)
-    only_newer_than = target.start.isoformat()  # YYYY-MM-DD
+    only_newer_than = target.start.isoformat()
 
     inserted_total = 0
     updated_total = 0
@@ -660,8 +601,8 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
                     views,
                     caption,
                     json.dumps(raw, ensure_ascii=False),
-                    now,  # inserted_at_utc
-                    now,  # updated_at_utc
+                    now,
+                    now,
                 ),
             )
             if int(ins.rowcount or 0) == 1:
@@ -718,7 +659,6 @@ def scrape_one_target(cfg: Config, conn: sqlite3.Connection, target: Target) -> 
 
 
 def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[Target]) -> dict[str, Path]:
-    # предполагаем, что период один (типичный кейс). Если разные — сделаем вывод по каждому.
     periods = sorted({(t.start.isoformat(), t.end.isoformat()) for t in targets})
     outputs: dict[str, Path] = {}
 
@@ -728,19 +668,12 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         tag = f"{start_s}_to_{end_s}"
         items_csv = cfg.output_dir / f"items_{tag}.csv"
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
-        topics_csv = cfg.output_dir / f"topics_{tag}.csv"
-        clusters_csv = cfg.output_dir / f"clusters_{tag}.csv"
-        categories_csv = cfg.output_dir / f"categories_{tag}.csv"
-        recommendations_csv = cfg.output_dir / f"recommendations_{tag}.csv"
-        recommendations_clusters_csv = cfg.output_dir / f"recommendations_clusters_{tag}.csv"
-        trends_csv = cfg.output_dir / f"trends_categories_{tag}.csv"
         llm_json = cfg.output_dir / f"llm_insights_{tag}.json"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
         profile_urls = [t.profile_url for t in period_targets]
 
-        # items
         rows = conn.execute(
             f"""
             SELECT profile_label, profile_url, content_kind, media_type, timestamp_utc,
@@ -773,8 +706,6 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             for r in rows:
                 writer.writerow(r)
 
-        # summary per profile
-        # берём топы через SQL (likes/views)
         summary_rows = []
         for t in period_targets:
             pr = conn.execute(
@@ -869,49 +800,28 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             )
             writer.writerows(summary_rows)
 
-        taxonomy = _load_taxonomy(cfg.taxonomy_path)
-
-        topics_rows: list[list[Any]] = []
-        topics_for_report: dict[str, Any] = {}
-        clusters_rows: list[list[Any]] = []
-        clusters_for_report: dict[str, Any] = {}
-        categories_rows: list[list[Any]] = []
-        categories_for_report: dict[str, Any] = {}
-        recommendations_rows: list[list[Any]] = []
-        recommendations_for_report: dict[str, Any] = {}
-        rec_clusters_rows: list[list[Any]] = []
-        trends_rows: list[list[Any]] = []
-        trends_for_report: dict[str, Any] = {}
         llm_for_report: dict[str, Any] = {}
-
-        if cfg.analysis_mode in {"heuristic", "both"}:
-            topics_rows, topics_for_report = _build_topics_analysis(rows)
-            _write_topics_csv(topics_csv, topics_rows)
-
-            clusters_rows, clusters_for_report = _build_clusters_analysis(rows, taxonomy=taxonomy)
-            _write_clusters_csv(clusters_csv, clusters_rows)
-
-            categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
-            _write_categories_csv(categories_csv, categories_rows)
-
-            recommendations_rows, recommendations_for_report = _build_recommendations(rows, taxonomy=taxonomy)
-            _write_recommendations_csv(recommendations_csv, recommendations_rows)
-
-            rec_clusters_rows = _build_cluster_recommendations_csv(clusters_for_report)
-            _write_cluster_recommendations_csv(recommendations_clusters_csv, rec_clusters_rows)
-
-            trends_rows, trends_for_report = _build_category_trends(rows, taxonomy=taxonomy, start_s=start_s, end_s=end_s)
-            _write_trends_csv(trends_csv, trends_rows)
-
-        if cfg.analysis_mode in {"llm", "both"}:
-            llm_for_report = _build_llm_insights(
-                rows=rows,
-                start_s=start_s,
-                end_s=end_s,
-                model=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
-                base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
-            )
+        llm_json_for_report: Path | None = None
+        if cfg.analysis_mode == "llm":
+            try:
+                llm_for_report = _build_llm_insights(
+                    rows=rows,
+                    start_s=start_s,
+                    end_s=end_s,
+                    model=cfg.ollama_model,
+                    base_url=cfg.ollama_base_url,
+                )
+            except Exception as e:
+                llm_for_report = {
+                    "provider": "ollama",
+                    "base_url": cfg.ollama_base_url,
+                    "model": cfg.ollama_model,
+                    "period": {"start": start_s, "end": end_s},
+                    "profiles": [],
+                    "error": str(e),
+                }
             llm_json.write_text(json.dumps(llm_for_report, ensure_ascii=False, indent=2), encoding="utf-8")
+            llm_json_for_report = llm_json
 
         _write_html_report(
             output_path=report_html,
@@ -919,56 +829,33 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             end_s=end_s,
             items_csv=items_csv,
             summary_csv=summary_csv,
-            topics_csv=topics_csv,
-            clusters_csv=clusters_csv,
-            categories_csv=categories_csv,
-            recommendations_csv=recommendations_csv,
-            recommendations_clusters_csv=recommendations_clusters_csv,
-            trends_csv=trends_csv,
-            llm_json=llm_json,
+            llm_json=llm_json_for_report,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
-            topics_for_report=topics_for_report,
-            clusters_for_report=clusters_for_report,
-            categories_for_report=categories_for_report,
-            recommendations_for_report=recommendations_for_report,
-            trends_for_report=trends_for_report,
             llm_for_report=llm_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
         outputs[f"summary_{tag}"] = summary_csv
-        outputs[f"topics_{tag}"] = topics_csv
-        outputs[f"clusters_{tag}"] = clusters_csv
-        outputs[f"categories_{tag}"] = categories_csv
-        outputs[f"recommendations_{tag}"] = recommendations_csv
-        outputs[f"recommendations_clusters_{tag}"] = recommendations_clusters_csv
-        outputs[f"trends_categories_{tag}"] = trends_csv
-        if llm_json.exists():
-            outputs[f"llm_insights_{tag}"] = llm_json
+        if llm_json_for_report and llm_json_for_report.exists():
+            outputs[f"llm_insights_{tag}"] = llm_json_for_report
         outputs[f"report_{tag}"] = report_html
 
     return outputs
 
 
 def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
-    """
-    Копирует сгенерированные отчёты/CSV в publish_dir (например, docs/ для GitHub Pages)
-    и создаёт index.html со ссылками.
-    """
     publish_dir.mkdir(parents=True, exist_ok=True)
 
-    # Копируем свежие артефакты (если есть)
     for _, p in outputs.items():
         if not p.exists():
             continue
         (publish_dir / p.name).write_bytes(p.read_bytes())
 
-    # Индекс строим по ВСЕМ файлам в publish_dir (чтобы сохранялась история)
     all_files = list(publish_dir.glob("*"))
     reports = sorted([p for p in all_files if p.name.startswith("report_") and p.suffix == ".html"])
-    csvs = sorted([p for p in all_files if p.suffix.lower() == ".csv"])
+    data_files = sorted([p for p in all_files if p.suffix.lower() in {".csv", ".json"}])
 
     def esc(s: str) -> str:
         return html.escape(s)
@@ -977,22 +864,30 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
         return esc(name)
 
     def period_from(name: str) -> str:
-        # report_YYYY-MM-DD_to_YYYY-MM-DD.html
-        m = re.match(r"^[a-z_]+_(\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})\.(?:html|csv)$", name)
+        m = re.match(r"^[a-z_]+_(\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2})\.(?:html|csv|json)$", name)
         return m.group(1) if m else "unknown"
 
-    # Группируем CSV по периоду
-    csv_by_period: dict[str, list[Path]] = defaultdict(list)
-    for p in csvs:
-        csv_by_period[period_from(p.name)].append(p)
+    files_by_period: dict[str, list[Path]] = defaultdict(list)
+    for p in data_files:
+        files_by_period[period_from(p.name)].append(p)
 
-    # Карточки отчётов по периодам
     cards_html = []
     for rep in sorted(reports, key=lambda p: p.name, reverse=True):
         per = period_from(rep.name)
-        csv_list = csv_by_period.get(per, [])
+        file_list = [p for p in files_by_period.get(per, []) if p.name.startswith(("items_", "summary_", "llm_insights_"))]
 
-        def csv_link(p: Path) -> str:
+        def sort_key(p: Path) -> tuple[int, str]:
+            if p.name.startswith("summary_"):
+                return (0, p.name)
+            if p.name.startswith("items_"):
+                return (1, p.name)
+            if p.name.startswith("llm_insights_"):
+                return (2, p.name)
+            return (9, p.name)
+
+        file_list = sorted(file_list, key=sort_key)
+
+        def file_link(p: Path) -> str:
             return f'<a class="chip" href="{href(p.name)}">{esc(p.name.replace(per + "_", ""))}</a>'
 
         cards_html.append(
@@ -1007,7 +902,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
               </div>
               <div class="muted">Файлы данных:</div>
               <div class="chips">
-                {''.join(csv_link(p) for p in csv_list) if csv_list else '<span class="muted">CSV не найден</span>'}
+                {''.join(file_link(p) for p in file_list) if file_list else '<span class="muted">Файлы не найдены</span>'}
               </div>
             </div>
             """
@@ -1106,9 +1001,11 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
     <div class="howto">
       <div class="card-title">Как обновить</div>
       <div class="sub">Локально (перескрапить и обновить docs):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always</code></div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
       <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto</code></div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
+      <div class="sub" style="margin-top:10px">Если Ollama недоступен (только скрапинг + отчёт без LLM‑секции):</div>
+      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
     </div>
   </div>
 </body>
@@ -1119,14 +1016,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
     return idx
 
 
-def _top_items(
-    conn: sqlite3.Connection,
-    profile_urls: list[str],
-    start_s: str,
-    end_s: str,
-    order_by: str,
-    limit: int,
-) -> list[dict[str, Any]]:
+def _top_items(conn: sqlite3.Connection, profile_urls: list[str], start_s: str, end_s: str, order_by: str, limit: int) -> list[dict[str, Any]]:
     if not profile_urls:
         return []
     if order_by not in {"likes_count", "views_count"}:
@@ -1174,1305 +1064,6 @@ def _top_items(
     return out
 
 
-_WORD_RE = re.compile(r"[0-9a-zA-Zа-яА-ЯёЁ_]{3,}")
-_HASHTAG_RE = re.compile(r"#([0-9a-zA-Zа-яА-ЯёЁ_]+)")
-
-# Короткий список стоп-слов (RU+EN), чтобы не засорять анализ
-_STOPWORDS = {
-    "и",
-    "в",
-    "во",
-    "на",
-    "по",
-    "к",
-    "ко",
-    "с",
-    "со",
-    "у",
-    "о",
-    "об",
-    "от",
-    "до",
-    "для",
-    "это",
-    "а",
-    "но",
-    "или",
-    "что",
-    "как",
-    "мы",
-    "вы",
-    "они",
-    "он",
-    "она",
-    "оно",
-    "ваш",
-    "ваша",
-    "ваши",
-    "наш",
-    "наша",
-    "наши",
-    "the",
-    "and",
-    "for",
-    "with",
-    "from",
-    "this",
-    "that",
-    "you",
-    "your",
-    "our",
-    "are",
-}
-
-
-def _extract_topics(caption: str) -> tuple[list[str], list[str]]:
-    text = (caption or "").strip()
-    if not text:
-        return [], []
-
-    lower = text.lower()
-    hashtags = [_normalize_token(m.group(1), is_hashtag=True) for m in _HASHTAG_RE.finditer(lower)]
-    hashtags = [h for h in hashtags if h]
-    words = []
-    for m in _WORD_RE.finditer(lower):
-        w = m.group(0).lower()
-        if w in _STOPWORDS:
-            continue
-        if w.startswith("http"):
-            continue
-        if w.isdigit():
-            continue
-        nw = _normalize_token(w, is_hashtag=False)
-        if nw and nw not in _STOPWORDS:
-            words.append(nw)
-    return hashtags, words
-
-
-def _normalize_token(token: str, *, is_hashtag: bool) -> str:
-    t = (token or "").strip().lower()
-    if not t:
-        return ""
-    t = t.replace("ё", "е")
-    t = t.strip("_-")
-    if not t:
-        return ""
-
-    # hashtags: оставляем как есть, только нормализуем разделители
-    if is_hashtag:
-        return t
-
-    # english light stemming
-    if re.fullmatch(r"[a-z0-9_]+", t or ""):
-        for suf in ("ing", "ed"):
-            if len(t) > 5 and t.endswith(suf):
-                t = t[: -len(suf)]
-                break
-        if len(t) > 4 and t.endswith("s"):
-            t = t[:-1]
-
-    # russian light stemming (очень грубо, но помогает группировать формы)
-    if re.search(r"[а-я]", t):
-        for suf in (
-            "иями",
-            "ями",
-            "ами",
-            "ого",
-            "ему",
-            "ому",
-            "ыми",
-            "ими",
-            "ая",
-            "яя",
-            "ое",
-            "ее",
-            "ые",
-            "ие",
-            "ый",
-            "ий",
-            "ой",
-            "ей",
-            "ам",
-            "ям",
-            "ах",
-            "ях",
-            "ом",
-            "ем",
-            "а",
-            "я",
-            "ы",
-            "и",
-            "о",
-            "е",
-            "у",
-            "ю",
-        ):
-            if len(t) > 4 and t.endswith(suf):
-                t = t[: -len(suf)]
-                break
-
-    return t
-
-
-def _build_topics_analysis(
-    item_rows: list[tuple[Any, ...]],
-    *,
-    min_posts: int = 3,
-    top_n: int = 15,
-) -> tuple[list[list[Any]], dict[str, Any]]:
-    """
-    item_rows: строки из items выборки:
-      (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
-
-    Возвращает:
-      - topics_rows для CSV (все темы)
-      - topics_for_report (топы для HTML)
-    """
-    # stats[(type, token)] = dict
-    stats: dict[tuple[str, str], dict[str, Any]] = defaultdict(
-        lambda: {
-            "posts": 0,
-            "likes_sum": 0,
-            "likes_n": 0,
-            "views_sum": 0,
-            "views_n": 0,
-            "profiles": set(),
-        }
-    )
-
-    per_profile: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(
-        lambda: defaultdict(
-            lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}
-        )
-    )
-
-    def add(token_type: str, token: str, profile: str, likes: Optional[int], views: Optional[int]) -> None:
-        s = stats[(token_type, token)]
-        s["posts"] += 1
-        s["profiles"].add(profile)
-        if likes is not None:
-            s["likes_sum"] += int(likes)
-            s["likes_n"] += 1
-        if views is not None:
-            s["views_sum"] += int(views)
-            s["views_n"] += 1
-
-        pp = per_profile[profile][(token_type, token)]
-        pp["posts"] += 1
-        if likes is not None:
-            pp["likes_sum"] += int(likes)
-            pp["likes_n"] += 1
-        if views is not None:
-            pp["views_sum"] += int(views)
-            pp["views_n"] += 1
-
-    for r in item_rows:
-        profile = str(r[0] or "")
-        likes = r[7] if len(r) > 7 else None
-        views = r[9] if len(r) > 9 else None
-        caption = r[10] if len(r) > 10 else ""
-
-        likes_i = _to_int(likes)
-        views_i = _to_int(views)
-
-        hashtags, words = _extract_topics(str(caption or ""))
-        for h in set(hashtags):  # считаем 1 раз на пост
-            add("hashtag", h, profile, likes_i, views_i)
-        for w in set(words):
-            add("word", w, profile, likes_i, views_i)
-
-    topics_rows: list[list[Any]] = []
-    for (token_type, token), s in stats.items():
-        posts = int(s["posts"])
-        likes_sum = int(s["likes_sum"])
-        views_sum = int(s["views_sum"])
-        likes_avg = (likes_sum / s["likes_n"]) if s["likes_n"] else 0
-        views_avg = (views_sum / s["views_n"]) if s["views_n"] else 0
-        topics_rows.append(
-            [
-                token_type,
-                token,
-                posts,
-                len(s["profiles"]),
-                likes_sum,
-                round(likes_avg, 2),
-                views_sum,
-                round(views_avg, 2),
-            ]
-        )
-
-    # сортировки для отчёта
-    def top(token_type: str, metric_idx: int) -> list[list[Any]]:
-        # metric_idx: 5 likes_avg, 7 views_avg, 4 likes_sum, 6 views_sum
-        filtered = [row for row in topics_rows if row[0] == token_type and int(row[2]) >= min_posts]
-        filtered.sort(key=lambda r: float(r[metric_idx]), reverse=True)
-        return filtered[:top_n]
-
-    topics_for_report = {
-        "min_posts": min_posts,
-        "top_hashtags_by_likes_avg": top("hashtag", 5),
-        "top_hashtags_by_views_avg": top("hashtag", 7),
-        "top_words_by_likes_avg": top("word", 5),
-        "top_words_by_views_avg": top("word", 7),
-        "per_profile": {},
-    }
-
-    # per-profile top topics (порог меньше, чтобы было информативно)
-    for profile, pstats in per_profile.items():
-        rows: list[list[Any]] = []
-        for (token_type, token), s in pstats.items():
-            posts = int(s["posts"])
-            likes_sum = int(s["likes_sum"])
-            views_sum = int(s["views_sum"])
-            likes_avg = (likes_sum / s["likes_n"]) if s["likes_n"] else 0
-            views_avg = (views_sum / s["views_n"]) if s["views_n"] else 0
-            rows.append([token_type, token, posts, 1, likes_sum, round(likes_avg, 2), views_sum, round(views_avg, 2)])
-
-        def top_p(tt: str, metric_idx: int) -> list[list[Any]]:
-            rr = [r for r in rows if r[0] == tt and int(r[2]) >= 2]
-            rr.sort(key=lambda r: float(r[metric_idx]), reverse=True)
-            return rr[:10]
-
-        topics_for_report["per_profile"][profile] = {
-            "top_hashtags_by_likes_avg": top_p("hashtag", 5),
-            "top_hashtags_by_views_avg": top_p("hashtag", 7),
-            "top_words_by_likes_avg": top_p("word", 5),
-            "top_words_by_views_avg": top_p("word", 7),
-        }
-    return topics_rows, topics_for_report
-
-
-def _write_topics_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["token_type", "token", "posts_count", "profiles_count", "likes_sum", "likes_avg", "views_sum", "views_avg"])
-        # стабильный порядок
-        for r in sorted(rows, key=lambda x: (str(x[0]), -int(x[2]), str(x[1]))):
-            w.writerow(r)
-
-
-def _build_clusters_analysis(
-    item_rows: list[tuple[Any, ...]],
-    *,
-    min_token_posts: int = 6,
-    min_edge_cooccurrence: int = 4,
-    min_cluster_posts: int = 10,
-    top_n: int = 15,
-    taxonomy: Optional[dict[str, Any]] = None,
-) -> tuple[list[list[Any]], dict[str, Any]]:
-    """
-    “Умные темы” = кластеры токенов, которые часто встречаются вместе в одном посте.
-
-    Возвращает:
-      - clusters_rows для CSV
-      - clusters_for_report с топами
-    """
-
-    # 1) Собираем tokens per post + частоты токенов
-    posts: list[dict[str, Any]] = []
-    token_freq: dict[str, int] = defaultdict(int)
-    token_profiles: dict[str, set[str]] = defaultdict(set)
-
-    for r in item_rows:
-        profile = str(r[0] or "")
-        url = str(r[5] or "")
-        likes_i = _to_int(r[7] if len(r) > 7 else None)
-        views_i = _to_int(r[9] if len(r) > 9 else None)
-        caption = str(r[10] or "")
-
-        hashtags, words = _extract_topics(caption)
-        tokens = set(hashtags) | set(words)
-        # отбрасываем слишком короткие/пустые
-        tokens = {t for t in tokens if t and len(t) >= 3 and t not in _STOPWORDS}
-
-        if not tokens:
-            continue
-        for t in tokens:
-            token_freq[t] += 1
-            token_profiles[t].add(profile)
-
-        posts.append({"profile": profile, "url": url, "likes": likes_i, "views": views_i, "tokens": tokens})
-
-    # 2) Фильтруем токены по частоте и "слишком общие" токены
-    total_posts = len(posts) or 1
-    total_profiles = len({p["profile"] for p in posts if p.get("profile")}) or 1
-
-    def is_too_generic(t: str) -> bool:
-        # слишком часто встречается (глобально)
-        if (token_freq.get(t, 0) / total_posts) >= 0.25:
-            return True
-        # встречается почти у всех профилей (общее слово бренда/формат)
-        if len(token_profiles.get(t, set())) >= max(3, total_profiles - 1):
-            return True
-        return False
-
-    vocab = {t for t, c in token_freq.items() if c >= min_token_posts and not is_too_generic(t)}
-    if not vocab:
-        return [], {"min_cluster_posts": min_cluster_posts, "note": "not_enough_data"}
-
-    # 3) Считаем co-occurrence edges
-    edges: dict[tuple[str, str], int] = defaultdict(int)
-    for p in posts:
-        toks = sorted([t for t in p["tokens"] if t in vocab])
-        if len(toks) < 2:
-            continue
-        # ограничим размер, чтобы не взорваться на длинных текстах
-        toks = toks[:60]
-        for i in range(len(toks)):
-            for j in range(i + 1, len(toks)):
-                a, b = toks[i], toks[j]
-                edges[(a, b)] += 1
-
-    # 4) Строим граф по сильным ребрам и находим компоненты связности
-    adj: dict[str, set[str]] = defaultdict(set)
-    for (a, b), w in edges.items():
-        if w >= min_edge_cooccurrence:
-            adj[a].add(b)
-            adj[b].add(a)
-
-    visited: set[str] = set()
-    clusters: list[list[str]] = []
-
-    for t in vocab:
-        if t in visited:
-            continue
-        if t not in adj:
-            visited.add(t)
-            continue
-        stack = [t]
-        comp: list[str] = []
-        visited.add(t)
-        while stack:
-            x = stack.pop()
-            comp.append(x)
-            for y in adj.get(x, set()):
-                if y not in visited:
-                    visited.add(y)
-                    stack.append(y)
-        if len(comp) >= 2:
-            clusters.append(comp)
-
-    if not clusters:
-        return [], {"min_cluster_posts": min_cluster_posts, "note": "no_clusters"}
-
-    title_by_id = {}
-    if taxonomy:
-        title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
-
-    # Precompute top tokens per cluster (for all clusters, not only exported ones)
-    cluster_top_tokens_all: dict[int, str] = {}
-    for idx, comp in enumerate(clusters, start=1):
-        top_tokens = sorted(comp, key=lambda t: token_freq.get(t, 0), reverse=True)[:8]
-        cluster_top_tokens_all[idx] = ",".join(top_tokens)
-
-    # 5) Назначаем каждый пост одному кластеру (по максимальному overlap)
-    token_to_cluster: dict[str, int] = {}
-    for idx, comp in enumerate(clusters, start=1):
-        for t in comp:
-            token_to_cluster[t] = idx
-
-    cluster_stats: dict[int, dict[str, Any]] = defaultdict(
-        lambda: {
-            "posts": 0,
-            "profiles": set(),
-            "likes_sum": 0,
-            "likes_n": 0,
-            "views_sum": 0,
-            "views_n": 0,
-            "top_like_url": "",
-            "top_like": None,
-            "top_view_url": "",
-            "top_view": None,
-            "top_likes": [],
-            "top_views": [],
-        }
-    )
-
-    cluster_profile_stats: dict[tuple[int, str], dict[str, Any]] = defaultdict(
-        lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0}
-    )
-
-    for p in posts:
-        # считаем overlap по кластерам
-        counts: dict[int, int] = defaultdict(int)
-        for t in p["tokens"]:
-            cid = token_to_cluster.get(t)
-            if cid:
-                counts[cid] += 1
-        if not counts:
-            continue
-        cid = max(counts.items(), key=lambda kv: kv[1])[0]
-
-        s = cluster_stats[cid]
-        s["posts"] += 1
-        s["profiles"].add(p["profile"])
-        if p["likes"] is not None:
-            s["likes_sum"] += int(p["likes"])
-            s["likes_n"] += 1
-            if s["top_like"] is None or int(p["likes"]) > int(s["top_like"]):
-                s["top_like"] = int(p["likes"])
-                s["top_like_url"] = p["url"]
-            _push_top_post(s["top_likes"], p["profile"], p["url"], int(p["likes"]), None, key="likes")
-        if p["views"] is not None:
-            s["views_sum"] += int(p["views"])
-            s["views_n"] += 1
-            if s["top_view"] is None or int(p["views"]) > int(s["top_view"]):
-                s["top_view"] = int(p["views"])
-                s["top_view_url"] = p["url"]
-            _push_top_post(s["top_views"], p["profile"], p["url"], None, int(p["views"]), key="views")
-
-        pp = cluster_profile_stats[(cid, p["profile"])]
-        pp["posts"] += 1
-        if p["likes"] is not None:
-            pp["likes_sum"] += int(p["likes"])
-            pp["likes_n"] += 1
-        if p["views"] is not None:
-            pp["views_sum"] += int(p["views"])
-            pp["views_n"] += 1
-
-    # 6) Формируем CSV строки
-    clusters_rows: list[list[Any]] = []
-    # category label for each cluster id (all clusters)
-    cluster_cat_all: dict[int, tuple[str, str]] = {}
-    if taxonomy:
-        for idx, comp in enumerate(clusters, start=1):
-            matches = _assign_categories(set(comp), taxonomy)
-            if matches:
-                cid = matches[0][0]
-                cluster_cat_all[idx] = (cid, title_by_id.get(cid, cid))
-
-    for idx, comp in enumerate(clusters, start=1):
-        st = cluster_stats.get(idx)
-        posts_cnt = int(st["posts"]) if st else 0
-        if posts_cnt < min_cluster_posts:
-            continue
-        likes_sum = int(st["likes_sum"])
-        views_sum = int(st["views_sum"])
-        likes_avg = (likes_sum / st["likes_n"]) if st["likes_n"] else 0
-        views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
-
-        top_tokens = cluster_top_tokens_all.get(idx, "")
-        cat_id, cat_title = cluster_cat_all.get(idx, ("", ""))
-        clusters_rows.append(
-            [
-                idx,
-                posts_cnt,
-                len(st["profiles"]),
-                top_tokens,
-                likes_sum,
-                round(likes_avg, 2),
-                views_sum,
-                round(views_avg, 2),
-                st.get("top_like_url", ""),
-                st.get("top_like", ""),
-                st.get("top_view_url", ""),
-                st.get("top_view", ""),
-                cat_id,
-                cat_title,
-            ]
-        )
-
-    # 7) Топы для отчета
-    def top(metric_idx: int) -> list[list[Any]]:
-        rows = list(clusters_rows)
-        rows.sort(key=lambda r: float(r[metric_idx] or 0), reverse=True)
-        return rows[:top_n]
-
-    clusters_for_report = {
-        "min_cluster_posts": min_cluster_posts,
-        "min_token_posts": min_token_posts,
-        "min_edge_cooccurrence": min_edge_cooccurrence,
-        "top_by_likes_avg": top(5),
-        "top_by_views_avg": top(7),
-        "top_by_posts": sorted(clusters_rows, key=lambda r: int(r[1]), reverse=True)[:top_n],
-        "per_profile": {},
-        "examples_by_cluster": {},
-        "recommendations_per_profile": {},
-    }
-
-    # examples for report (top posts per cluster)
-    for cid, st in cluster_stats.items():
-        clusters_for_report["examples_by_cluster"][str(cid)] = {
-            "top_likes": st.get("top_likes", [])[:3],
-            "top_views": st.get("top_views", [])[:3],
-        }
-
-    # recommendations per profile using clusters (more variety than taxonomy categories)
-    # baseline per profile
-    baseline_prof: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
-    assigned_posts_prof: dict[str, int] = defaultdict(int)
-    for p in posts:
-        prof = p["profile"]
-        assigned_posts_prof[prof] += 1
-        b = baseline_prof[prof]
-        b["posts"] += 1
-        if p.get("likes") is not None:
-            b["likes_sum"] += int(p["likes"])
-            b["likes_n"] += 1
-        if p.get("views") is not None:
-            b["views_sum"] += int(p["views"])
-            b["views_n"] += 1
-
-    # quick lookup top_tokens and category title per cluster (for all clusters)
-    top_tokens_by_cluster: dict[int, str] = dict(cluster_top_tokens_all)
-    cluster_cat_title: dict[int, str] = {cid: title for cid, (_, title) in cluster_cat_all.items()}
-
-    SCALE = 1.12
-    REDUCE = 0.92
-    LOW_SHARE = 0.25
-    HIGH_SHARE = 0.40
-    MIN_POSTS = 6
-
-    for prof in sorted({p["profile"] for p in posts if p.get("profile")}):
-        b = baseline_prof.get(prof) or {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0}
-        base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
-        base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
-        total = assigned_posts_prof.get(prof, 0) or 1
-
-        items = []
-        for (cid, p), st in cluster_profile_stats.items():
-            if p != prof or int(st["posts"]) < MIN_POSTS:
-                continue
-            likes_avg = (st["likes_sum"] / st["likes_n"]) if st["likes_n"] else 0
-            views_avg = (st["views_sum"] / st["views_n"]) if st["views_n"] else 0
-            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
-            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
-            share = int(st["posts"]) / total
-            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
-            items.append(
-                {
-                    "cluster_id": cid,
-                    "label": cluster_cat_title.get(cid, ""),
-                    "top_tokens": top_tokens_by_cluster.get(cid, ""),
-                    "posts": int(st["posts"]),
-                    "share": round(share, 3),
-                    "likes_lift": round(likes_lift, 2),
-                    "views_lift": round(views_lift, 2),
-                    "score": round(score, 3),
-                }
-            )
-
-        items.sort(key=lambda x: float(x["score"]), reverse=True)
-        best = items[:5]
-        worst = list(reversed(items[-5:])) if len(items) > 5 else []
-        dominant = max(items, key=lambda x: float(x["share"])) if items else None
-
-        scale = [x for x in items if x["score"] >= SCALE and x["share"] <= LOW_SHARE]
-        keep = [x for x in items if x["score"] >= SCALE and x["share"] > LOW_SHARE]
-        reduce = [x for x in items if x["score"] <= REDUCE and x["share"] >= HIGH_SHARE]
-        experiment = [x for x in items if x["share"] <= LOW_SHARE and REDUCE < x["score"] < SCALE]
-
-        clusters_for_report["recommendations_per_profile"][prof] = {
-            "baseline_likes_avg": round(base_likes_avg, 2),
-            "baseline_views_avg": round(base_views_avg, 2),
-            "thresholds": {"scale": SCALE, "reduce": REDUCE, "low_share": LOW_SHARE, "high_share": HIGH_SHARE, "min_posts": MIN_POSTS},
-            "best": best,
-            "worst": worst,
-            "dominant": dominant,
-            "scale": scale[:6],
-            "keep": keep[:6],
-            "reduce": reduce[:6],
-            "experiment": experiment[:6],
-        }
-
-    # per-profile top clusters
-    # строим массив (profile -> list rows with same schema as clusters_rows but without global top links)
-    profiles = sorted({p["profile"] for p in posts if p.get("profile")})
-    # quick lookup top_tokens per cluster_id
-    top_tokens_by_cluster: dict[int, str] = {}
-    for r in clusters_rows:
-        try:
-            top_tokens_by_cluster[int(r[0])] = str(r[3])
-        except Exception:
-            continue
-
-    for prof in profiles:
-        prof_rows: list[list[Any]] = []
-        for (cid, p), st in cluster_profile_stats.items():
-            if p != prof:
-                continue
-            if int(st["posts"]) < 5:
-                continue
-            likes_sum = int(st["likes_sum"])
-            views_sum = int(st["views_sum"])
-            likes_avg = (likes_sum / st["likes_n"]) if st["likes_n"] else 0
-            views_avg = (views_sum / st["views_n"]) if st["views_n"] else 0
-            prof_rows.append(
-                [
-                    cid,
-                    int(st["posts"]),
-                    1,
-                    top_tokens_by_cluster.get(cid, ""),
-                    likes_sum,
-                    round(likes_avg, 2),
-                    views_sum,
-                    round(views_avg, 2),
-                    "",
-                    "",
-                    "",
-                    "",
-                ]
-            )
-
-        prof_rows.sort(key=lambda r: float(r[5]), reverse=True)
-        clusters_for_report["per_profile"][prof] = {
-            "top_by_likes_avg": prof_rows[:8],
-            "top_by_views_avg": sorted(prof_rows, key=lambda r: float(r[7]), reverse=True)[:8],
-        }
-
-    return clusters_rows, clusters_for_report
-
-
-def _write_clusters_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(
-            [
-                "cluster_id",
-                "posts_count",
-                "profiles_count",
-                "top_tokens",
-                "likes_sum",
-                "likes_avg",
-                "views_sum",
-                "views_avg",
-                "top_post_by_likes_url",
-                "top_post_by_likes",
-                "top_by_views_url",
-                "top_by_views",
-                "category_id",
-                "category_title",
-            ]
-        )
-        for r in sorted(rows, key=lambda x: int(x[0])):
-            w.writerow(r)
-
-
-def _push_top_post(lst: list[dict[str, Any]], profile: str, url: str, likes: Optional[int], views: Optional[int], *, key: str, k: int = 3) -> None:
-    """
-    Храним top-K примеров (для HTML), без caption чтобы не раздувать.
-    """
-    value = likes if key == "likes" else views
-    if value is None:
-        return
-    lst.append({"profile": profile, "url": url, "value": int(value)})
-    lst.sort(key=lambda x: int(x["value"]), reverse=True)
-    del lst[k:]
-
-
-def _load_taxonomy(path: Path) -> dict[str, Any]:
-    """
-    taxonomy.json:
-      { "categories": [ { "id": "...", "title": "...", "keywords": [...] }, ... ] }
-    """
-    if not path.exists():
-        return {"categories": []}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"categories": []}
-
-    cats = raw.get("categories") if isinstance(raw, dict) else None
-    if not isinstance(cats, list):
-        return {"categories": []}
-
-    normalized = []
-    for c in cats:
-        if not isinstance(c, dict):
-            continue
-        cid = str(c.get("id") or "").strip()
-        title = str(c.get("title") or cid).strip() or cid
-        kws = c.get("keywords") or []
-        if not cid:
-            continue
-        nk = []
-        if isinstance(kws, list):
-            for k in kws:
-                kk = _normalize_token(str(k), is_hashtag=False)
-                if kk:
-                    nk.append(kk)
-        normalized.append({"id": cid, "title": title, "keywords": sorted(set(nk))})
-    return {"categories": normalized}
-
-
-def _assign_categories(tokens: set[str], taxonomy: dict[str, Any]) -> list[tuple[str, int]]:
-    """
-    Возвращает список (category_id, score) по количеству совпавших keywords.
-    """
-    cats = taxonomy.get("categories") or []
-    out: list[tuple[str, int]] = []
-    for c in cats:
-        kws = set(c.get("keywords") or [])
-        if not kws:
-            continue
-        score = len(tokens & kws)
-        if score > 0:
-            out.append((str(c.get("id")), score))
-    out.sort(key=lambda x: x[1], reverse=True)
-    # фильтр слабых совпадений: 1 слово часто слишком шумное
-    if out and out[0][1] < 2:
-        return []
-    return out
-
-
-def _build_categories_analysis(
-    item_rows: list[tuple[Any, ...]],
-    *,
-    taxonomy: dict[str, Any],
-) -> tuple[list[list[Any]], dict[str, Any]]:
-    """
-    Категории = человеческие темы из taxonomy.json.
-    """
-    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
-
-    # baselines per profile (for lift)
-    baseline: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
-
-    # stats[(category_id)] = dict
-    stats: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"posts": 0, "profiles": set(), "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "top_likes": [], "top_views": []}
-    )
-    per_profile: dict[str, dict[str, dict[str, Any]]] = defaultdict(
-        lambda: defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
-    )
-
-    for r in item_rows:
-        profile = str(r[0] or "")
-        url = str(r[5] or "")
-        likes_i = _to_int(r[7] if len(r) > 7 else None)
-        views_i = _to_int(r[9] if len(r) > 9 else None)
-        caption = str(r[10] or "")
-
-        # update baseline
-        b = baseline[profile]
-        if likes_i is not None:
-            b["likes_sum"] += int(likes_i)
-            b["likes_n"] += 1
-        if views_i is not None:
-            b["views_sum"] += int(views_i)
-            b["views_n"] += 1
-
-        hashtags, words = _extract_topics(caption)
-        tokens = set(hashtags) | set(words)
-        if not tokens:
-            continue
-        matches = _assign_categories(tokens, taxonomy)
-        if not matches:
-            continue
-        # берем top-1 категорию, чтобы статистика не раздувалась
-        cat_id = matches[0][0]
-
-        s = stats[cat_id]
-        s["posts"] += 1
-        s["profiles"].add(profile)
-        if likes_i is not None:
-            s["likes_sum"] += int(likes_i)
-            s["likes_n"] += 1
-            _push_top_post(s["top_likes"], profile, url, int(likes_i), None, key="likes")
-        if views_i is not None:
-            s["views_sum"] += int(views_i)
-            s["views_n"] += 1
-            _push_top_post(s["top_views"], profile, url, None, int(views_i), key="views")
-
-        ps = per_profile[profile][cat_id]
-        ps["posts"] += 1
-        if likes_i is not None:
-            ps["likes_sum"] += int(likes_i)
-            ps["likes_n"] += 1
-        if views_i is not None:
-            ps["views_sum"] += int(views_i)
-            ps["views_n"] += 1
-
-    rows: list[list[Any]] = []
-    for cat_id, s in stats.items():
-        likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
-        views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
-        rows.append(
-            [
-                cat_id,
-                title_by_id.get(cat_id, cat_id),
-                int(s["posts"]),
-                len(s["profiles"]),
-                int(s["likes_sum"]),
-                round(likes_avg, 2),
-                int(s["views_sum"]),
-                round(views_avg, 2),
-            ]
-        )
-
-    rows.sort(key=lambda r: int(r[2]), reverse=True)
-
-    per_profile_out: dict[str, Any] = {}
-    for prof, d in per_profile.items():
-        base_likes_avg = (baseline[prof]["likes_sum"] / baseline[prof]["likes_n"]) if baseline[prof]["likes_n"] else 0
-        base_views_avg = (baseline[prof]["views_sum"] / baseline[prof]["views_n"]) if baseline[prof]["views_n"] else 0
-        pr = []
-        for cat_id, s in d.items():
-            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
-            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
-            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
-            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
-            pr.append(
-                [
-                    cat_id,
-                    title_by_id.get(cat_id, cat_id),
-                    int(s["posts"]),
-                    1,
-                    int(s["likes_sum"]),
-                    round(likes_avg, 2),
-                    round(likes_lift, 2),
-                    int(s["views_sum"]),
-                    round(views_avg, 2),
-                    round(views_lift, 2),
-                ]
-            )
-        pr.sort(key=lambda r: float(r[5]), reverse=True)
-        per_profile_out[prof] = pr[:10]
-
-    report = {
-        "top_by_posts": rows[:12],
-        "top_by_likes_avg": sorted(rows, key=lambda r: float(r[5]), reverse=True)[:12],
-        "top_by_views_avg": sorted(rows, key=lambda r: float(r[7]), reverse=True)[:12],
-        "per_profile": per_profile_out,
-        "examples_by_category": {cat_id: {"top_likes": s.get("top_likes", [])[:3], "top_views": s.get("top_views", [])[:3]} for cat_id, s in stats.items()},
-    }
-    return rows, report
-
-
-def _write_categories_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["category_id", "category_title", "posts_count", "profiles_count", "likes_sum", "likes_avg", "views_sum", "views_avg"])
-        w.writerows(rows)
-
-
-def _build_recommendations(
-    item_rows: list[tuple[Any, ...]],
-    *,
-    taxonomy: dict[str, Any],
-    min_posts: int = 8,
-) -> tuple[list[list[Any]], dict[str, Any]]:
-    """
-    Рекомендации по контенту: что делать больше/меньше по lift (vs baseline аккаунта).
-    """
-    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
-
-    baseline: dict[str, dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
-    by_profile_cat: dict[tuple[str, str], dict[str, Any]] = defaultdict(
-        lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "top_like": None, "top_like_url": "", "top_view": None, "top_view_url": ""}
-    )
-
-    for r in item_rows:
-        profile = str(r[0] or "")
-        url = str(r[5] or "")
-        likes = _to_int(r[7] if len(r) > 7 else None)
-        views = _to_int(r[9] if len(r) > 9 else None)
-        caption = str(r[10] or "")
-
-        b = baseline[profile]
-        b["posts"] += 1
-        if likes is not None:
-            b["likes_sum"] += int(likes)
-            b["likes_n"] += 1
-        if views is not None:
-            b["views_sum"] += int(views)
-            b["views_n"] += 1
-
-        hashtags, words = _extract_topics(caption)
-        tokens = set(hashtags) | set(words)
-        matches = _assign_categories(tokens, taxonomy) if tokens else []
-        if not matches:
-            continue
-        cat_id = matches[0][0]
-
-        s = by_profile_cat[(profile, cat_id)]
-        s["posts"] += 1
-        if likes is not None:
-            s["likes_sum"] += int(likes)
-            s["likes_n"] += 1
-            if s["top_like"] is None or int(likes) > int(s["top_like"]):
-                s["top_like"] = int(likes)
-                s["top_like_url"] = url
-        if views is not None:
-            s["views_sum"] += int(views)
-            s["views_n"] += 1
-            if s["top_view"] is None or int(views) > int(s["top_view"]):
-                s["top_view"] = int(views)
-                s["top_view_url"] = url
-
-    rec_rows: list[list[Any]] = []
-    per_profile: dict[str, Any] = {}
-
-    # thresholds (tuned for noisy social data)
-    SCALE_LIFT = 1.12
-    REDUCE_LIFT = 0.92
-    LOW_SHARE = 0.25
-    HIGH_SHARE = 0.40
-    EXPERIMENT_MIN_POSTS = 3
-
-    for profile, b in baseline.items():
-        base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
-        base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
-
-        rows = []
-        for (p, cat_id), s in by_profile_cat.items():
-            if p != profile or int(s["posts"]) < min_posts:
-                continue
-            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
-            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
-            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
-            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
-            share = (int(s["posts"]) / b["posts"]) if b["posts"] else 0
-            # composite (если views нет — вес 0.25)
-            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
-            rows.append(
-                {
-                    "category_id": cat_id,
-                    "category_title": title_by_id.get(cat_id, cat_id),
-                    "posts": int(s["posts"]),
-                    "likes_avg": round(likes_avg, 2),
-                    "views_avg": round(views_avg, 2),
-                    "likes_lift": round(likes_lift, 2),
-                    "views_lift": round(views_lift, 2),
-                    "share": round(share, 3),
-                    "score": round(score, 3),
-                    "top_like_url": s.get("top_like_url", ""),
-                    "top_view_url": s.get("top_view_url", ""),
-                }
-            )
-
-        # add experimental candidates with small sample size
-        exp_rows = []
-        for (p, cat_id), s in by_profile_cat.items():
-            if p != profile:
-                continue
-            if int(s["posts"]) < EXPERIMENT_MIN_POSTS or int(s["posts"]) >= min_posts:
-                continue
-            likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
-            views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
-            likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
-            views_lift = (views_avg / base_views_avg) if base_views_avg else 0
-            share = (int(s["posts"]) / b["posts"]) if b["posts"] else 0
-            score = (likes_lift * 0.6) + (views_lift * 0.4 if base_views_avg else views_lift * 0.25)
-            exp_rows.append(
-                {
-                    "category_id": cat_id,
-                    "category_title": title_by_id.get(cat_id, cat_id),
-                    "posts": int(s["posts"]),
-                    "likes_avg": round(likes_avg, 2),
-                    "views_avg": round(views_avg, 2),
-                    "likes_lift": round(likes_lift, 2),
-                    "views_lift": round(views_lift, 2),
-                    "share": round(share, 3),
-                    "score": round(score, 3),
-                    "top_like_url": s.get("top_like_url", ""),
-                    "top_view_url": s.get("top_view_url", ""),
-                    "note": "low_sample",
-                }
-            )
-
-        # classify
-        scale = [x for x in rows if x["score"] >= SCALE_LIFT and x["share"] <= LOW_SHARE]
-        keep = [x for x in rows if x["score"] >= SCALE_LIFT and x["share"] > LOW_SHARE]
-        reduce = [x for x in rows if x["score"] <= REDUCE_LIFT and x["share"] >= HIGH_SHARE]
-        experiment = [x for x in rows if x["share"] <= LOW_SHARE and REDUCE_LIFT < x["score"] < SCALE_LIFT]
-        # plus low-sample candidates
-        experiment += [x for x in exp_rows if x["score"] >= 1.05 and x["share"] <= LOW_SHARE]
-
-        scale.sort(key=lambda x: (x["score"], -x["share"]), reverse=True)
-        keep.sort(key=lambda x: (x["score"], x["share"]), reverse=True)
-        reduce.sort(key=lambda x: (x["share"], -x["score"]), reverse=True)
-        experiment.sort(key=lambda x: (x["share"], x["score"]), reverse=True)
-
-        per_profile[profile] = {
-            "baseline_likes_avg": round(base_likes_avg, 2),
-            "baseline_views_avg": round(base_views_avg, 2),
-            "min_posts": min_posts,
-            "scale": scale[:5],
-            "keep": keep[:5],
-            "reduce": reduce[:5],
-            "experiment": experiment[:5],
-            "thresholds": {
-                "scale_lift": SCALE_LIFT,
-                "reduce_lift": REDUCE_LIFT,
-                "low_share": LOW_SHARE,
-                "high_share": HIGH_SHARE,
-                "experiment_min_posts": EXPERIMENT_MIN_POSTS,
-            },
-        }
-
-        for x in scale[:5]:
-            rec_rows.append(
-                [
-                    profile,
-                    x["category_id"],
-                    x["category_title"],
-                    x["posts"],
-                    x["likes_avg"],
-                    x["likes_lift"],
-                    x["views_avg"],
-                    x["views_lift"],
-                    x.get("share", ""),
-                    x.get("score", ""),
-                    "scale",
-                    x["top_like_url"],
-                    x["top_view_url"],
-                ]
-            )
-        for x in reduce[:5]:
-            rec_rows.append(
-                [
-                    profile,
-                    x["category_id"],
-                    x["category_title"],
-                    x["posts"],
-                    x["likes_avg"],
-                    x["likes_lift"],
-                    x["views_avg"],
-                    x["views_lift"],
-                    x.get("share", ""),
-                    x.get("score", ""),
-                    "reduce",
-                    x["top_like_url"],
-                    x["top_view_url"],
-                ]
-            )
-
-    report = {"per_profile": per_profile, "min_posts": min_posts}
-    return rec_rows, report
-
-
-def _write_recommendations_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(
-            [
-                "profile",
-                "category_id",
-                "category_title",
-                "posts_count",
-                "likes_avg",
-                "likes_lift",
-                "views_avg",
-                "views_lift",
-                "share",
-                "score",
-                "action",
-                "top_like_url",
-                "top_view_url",
-            ]
-        )
-        # backward-compat: if rows don't include share/score, pad them
-        for r in rows:
-            if len(r) == 11:
-                # insert share/score before action
-                r = r[:8] + ["", ""] + r[8:]
-            w.writerow(r)
-
-
-def _iter_months(start: date, end: date) -> list[str]:
-    out = []
-    cur = date(start.year, start.month, 1)
-    while cur < end:
-        out.append(f"{cur.year:04d}-{cur.month:02d}")
-        if cur.month == 12:
-            cur = date(cur.year + 1, 1, 1)
-        else:
-            cur = date(cur.year, cur.month + 1, 1)
-    return out
-
-
-def _build_category_trends(
-    item_rows: list[tuple[Any, ...]],
-    *,
-    taxonomy: dict[str, Any],
-    start_s: str,
-    end_s: str,
-) -> tuple[list[list[Any]], dict[str, Any]]:
-    """
-    Тренды по месяцам: profile × month × category.
-    """
-    title_by_id = {c["id"]: c.get("title", c["id"]) for c in taxonomy.get("categories") or []}
-    start = date.fromisoformat(start_s)
-    end = date.fromisoformat(end_s)
-    months = _iter_months(start, end)
-
-    # baseline per profile per month
-    baseline: dict[tuple[str, str], dict[str, Any]] = defaultdict(lambda: {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0})
-    stats: dict[tuple[str, str, str], dict[str, Any]] = defaultdict(lambda: {"posts": 0, "likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0})
-
-    for r in item_rows:
-        profile = str(r[0] or "")
-        ts = str(r[4] or "")
-        likes = _to_int(r[7] if len(r) > 7 else None)
-        views = _to_int(r[9] if len(r) > 9 else None)
-        caption = str(r[10] or "")
-
-        try:
-            dt = _parse_iso_dt(ts)
-        except Exception:
-            continue
-        month = f"{dt.year:04d}-{dt.month:02d}"
-
-        b = baseline[(profile, month)]
-        b["posts"] += 1
-        if likes is not None:
-            b["likes_sum"] += int(likes)
-            b["likes_n"] += 1
-        if views is not None:
-            b["views_sum"] += int(views)
-            b["views_n"] += 1
-
-        hashtags, words = _extract_topics(caption)
-        tokens = set(hashtags) | set(words)
-        matches = _assign_categories(tokens, taxonomy) if tokens else []
-        if not matches:
-            continue
-        cat_id = matches[0][0]
-
-        s = stats[(profile, month, cat_id)]
-        s["posts"] += 1
-        if likes is not None:
-            s["likes_sum"] += int(likes)
-            s["likes_n"] += 1
-        if views is not None:
-            s["views_sum"] += int(views)
-            s["views_n"] += 1
-
-    rows: list[list[Any]] = []
-    # build per-profile monthly top categories for report
-    top_for_report: dict[str, list[dict[str, Any]]] = defaultdict(list)
-
-    # Determine profiles and categories present
-    profiles = sorted({p for (p, _, _) in stats.keys()})
-
-    for profile in profiles:
-        for month in months:
-            b = baseline.get((profile, month)) or {"likes_sum": 0, "likes_n": 0, "views_sum": 0, "views_n": 0, "posts": 0}
-            base_likes_avg = (b["likes_sum"] / b["likes_n"]) if b["likes_n"] else 0
-            base_views_avg = (b["views_sum"] / b["views_n"]) if b["views_n"] else 0
-
-            # collect cats in this month
-            month_rows = []
-            for (p, m, cat_id), s in stats.items():
-                if p != profile or m != month:
-                    continue
-                likes_avg = (s["likes_sum"] / s["likes_n"]) if s["likes_n"] else 0
-                views_avg = (s["views_sum"] / s["views_n"]) if s["views_n"] else 0
-                likes_lift = (likes_avg / base_likes_avg) if base_likes_avg else 0
-                views_lift = (views_avg / base_views_avg) if base_views_avg else 0
-                month_rows.append(
-                    {
-                        "category_id": cat_id,
-                        "category_title": title_by_id.get(cat_id, cat_id),
-                        "posts": int(s["posts"]),
-                        "likes_avg": round(likes_avg, 2),
-                        "views_avg": round(views_avg, 2),
-                        "likes_lift": round(likes_lift, 2),
-                        "views_lift": round(views_lift, 2),
-                    }
-                )
-
-                rows.append(
-                    [
-                        profile,
-                        month,
-                        cat_id,
-                        title_by_id.get(cat_id, cat_id),
-                        int(s["posts"]),
-                        round(likes_avg, 2),
-                        round(views_avg, 2),
-                        round(likes_lift, 2),
-                        round(views_lift, 2),
-                    ]
-                )
-
-            if month_rows:
-                month_rows.sort(key=lambda x: x["posts"], reverse=True)
-                top_for_report[profile].append(
-                    {
-                        "month": month,
-                        "top_category": month_rows[0]["category_title"],
-                        "posts": month_rows[0]["posts"],
-                        "likes_avg": month_rows[0]["likes_avg"],
-                        "views_avg": month_rows[0]["views_avg"],
-                    }
-                )
-
-    report = {"months": months, "per_profile": top_for_report}
-    return rows, report
-
-
-def _write_trends_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["profile", "month", "category_id", "category_title", "posts_count", "likes_avg", "views_avg", "likes_lift", "views_lift"])
-        w.writerows(rows)
-
-
-def _build_cluster_recommendations_csv(clusters_for_report: dict[str, Any]) -> list[list[Any]]:
-    rows: list[list[Any]] = []
-    per = clusters_for_report.get("recommendations_per_profile") or {}
-    for prof, d in per.items():
-        # always include best/worst/dominant for usefulness
-        for action in ("best", "worst"):
-            for x in d.get(action, []) or []:
-                rows.append(
-                    [
-                        prof,
-                        x.get("cluster_id"),
-                        x.get("label", ""),
-                        x.get("top_tokens", ""),
-                        x.get("posts"),
-                        x.get("share"),
-                        x.get("score"),
-                        x.get("likes_lift"),
-                        x.get("views_lift"),
-                        action,
-                    ]
-                )
-        dom = d.get("dominant")
-        if dom:
-            rows.append(
-                [
-                    prof,
-                    dom.get("cluster_id"),
-                    dom.get("label", ""),
-                    dom.get("top_tokens", ""),
-                    dom.get("posts"),
-                    dom.get("share"),
-                    dom.get("score"),
-                    dom.get("likes_lift"),
-                    dom.get("views_lift"),
-                    "dominant",
-                ]
-            )
-        for action in ("scale", "reduce", "keep", "experiment"):
-            for x in d.get(action, []) or []:
-                rows.append(
-                    [
-                        prof,
-                        x.get("cluster_id"),
-                        x.get("label", ""),
-                        x.get("top_tokens", ""),
-                        x.get("posts"),
-                        x.get("share"),
-                        x.get("score"),
-                        x.get("likes_lift"),
-                        x.get("views_lift"),
-                        action,
-                    ]
-                )
-    return rows
-
-
-def _write_cluster_recommendations_csv(path: Path, rows: list[list[Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["profile", "cluster_id", "cluster_label", "top_tokens", "posts_count", "share", "score", "likes_lift", "views_lift", "action"])
-        w.writerows(rows)
-
-
 def _write_html_report(
     *,
     output_path: Path,
@@ -2480,28 +1071,12 @@ def _write_html_report(
     end_s: str,
     items_csv: Path,
     summary_csv: Path,
-    topics_csv: Path,
-    clusters_csv: Path,
-    categories_csv: Path,
-    recommendations_csv: Path,
-    recommendations_clusters_csv: Path,
-    trends_csv: Path,
-    llm_json: Path,
+    llm_json: Path | None,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
-    topics_for_report: dict[str, Any],
-    clusters_for_report: dict[str, Any],
-    categories_for_report: dict[str, Any],
-    recommendations_for_report: dict[str, Any],
-    trends_for_report: dict[str, Any],
     llm_for_report: dict[str, Any],
 ) -> None:
-    """
-    Генерирует удобочитаемый HTML отчёт (локальная веб‑страница / GitHub Pages).
-    Без внешних зависимостей: CSS + немного семантики (details/summary).
-    """
-
     def esc(s: Any) -> str:
         return html.escape("" if s is None else str(s))
 
@@ -2518,12 +1093,6 @@ def _write_html_report(
             return s
         return s[: n - 1] + "…"
 
-    # summary_rows columns (см. export_period_outputs)
-    # [
-    #   profile, profile_url, items_total, posts_count, reels_count,
-    #   likes_sum, likes_avg, comments_sum, comments_avg,
-    #   views_sum, views_avg, top_like_url, top_like, top_view_url, top_view
-    # ]
     profiles = [r[0] for r in summary_rows]
     likes_sum = [int(r[5] or 0) for r in summary_rows]
     views_sum = [int(r[9] or 0) for r in summary_rows]
@@ -2618,13 +1187,8 @@ def _write_html_report(
 
     rel_items = esc(items_csv.name)
     rel_summary = esc(summary_csv.name)
-    rel_topics = esc(topics_csv.name)
-    rel_clusters = esc(clusters_csv.name)
-    rel_categories = esc(categories_csv.name)
-    rel_recs = esc(recommendations_csv.name)
-    rel_recs_clusters = esc(recommendations_clusters_csv.name)
-    rel_trends = esc(trends_csv.name)
-    rel_llm_json = esc(llm_json.name)
+    rel_llm_json = esc(llm_json.name) if llm_json else ""
+    llm_link = f'<a class="pill" href="{rel_llm_json}">Скачать llm_insights JSON</a>' if llm_json else ""
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -2705,18 +1269,12 @@ def _write_html_report(
       <div>
         <div class="title">Instagram report</div>
         <div class="subtitle">Период: <span class="mono">{esc(start_s)} → {esc(end_s)}</span> (end-exclusive, UTC)</div>
-        <div class="subtitle">Что внутри: KPI по аккаунтам → топ‑посты → темы по тексту → “умные темы” (кластеры).</div>
+        <div class="subtitle">Что внутри: KPI по аккаунтам → топ‑посты → LLM‑анализ (только LLM).</div>
       </div>
       <div class="links">
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
-        <a class="pill" href="{rel_topics}">Скачать topics CSV</a>
-        <a class="pill" href="{rel_clusters}">Скачать clusters CSV</a>
-        <a class="pill" href="{rel_categories}">Скачать categories CSV</a>
-        <a class="pill" href="{rel_recs}">Скачать recommendations CSV</a>
-        <a class="pill" href="{rel_recs_clusters}">Скачать recommendations (clusters) CSV</a>
-        <a class="pill" href="{rel_trends}">Скачать trends CSV</a>
-        <a class="pill" href="{rel_llm_json}">Скачать llm_insights JSON</a>
+        {llm_link}
       </div>
     </div>
 
@@ -2761,12 +1319,6 @@ def _write_html_report(
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
     {_llm_section_html(llm_for_report)}
-    {_topics_section_html(topics_for_report)}
-    {_categories_section_html(categories_for_report)}
-    {_recommendations_section_html(recommendations_for_report)}
-    {_cluster_recommendations_section_html(clusters_for_report)}
-    {_trends_section_html(trends_for_report)}
-    {_clusters_section_html(clusters_for_report)}
 
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
@@ -2779,550 +1331,7 @@ def _write_html_report(
     output_path.write_text(doc, encoding="utf-8")
 
 
-def _topics_section_html(topics_for_report: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    min_posts = int(topics_for_report.get("min_posts") or 3)
-
-    def fmt_topic(token_type: str, token: str) -> str:
-        if token_type == "hashtag":
-            return "#" + token
-        # слова: показываем как “стем”
-        return token + "*"
-
-    def table(title: str, rows: list[list[Any]]) -> str:
-        trs = []
-        for r in rows:
-            # token_type, token, posts_count, profiles_count, likes_sum, likes_avg, views_sum, views_avg
-            trs.append(
-                "<tr>"
-                f"<td>{esc(fmt_topic(str(r[0]), str(r[1])))}</td>"
-                f"<td class='num'>{esc(r[2])}</td>"
-                f"<td class='num'>{esc(r[3])}</td>"
-                f"<td class='num'>{esc(r[4])}</td>"
-                f"<td class='num'>{esc(r[5])}</td>"
-                f"<td class='num'>{esc(r[6])}</td>"
-                f"<td class='num'>{esc(r[7])}</td>"
-                "</tr>"
-            )
-        return f"""
-        <div class="card">
-          <div class="card-title">{esc(title)}</div>
-          <div class="muted">Минимум постов для темы: {esc(min_posts)}</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>topic</th>
-                  <th class="num">posts</th>
-                  <th class="num">profiles</th>
-                  <th class="num">likes_sum</th>
-                  <th class="num">likes_avg</th>
-                  <th class="num">views_sum</th>
-                  <th class="num">views_avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {''.join(trs) if trs else '<tr><td colspan="7" class="muted">Недостаточно данных</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        """
-
-    per_profile = topics_for_report.get("per_profile") or {}
-    per_blocks = []
-    # ограничим: покажем до 6 профилей, чтобы не раздувать страницу
-    for profile in sorted(per_profile.keys())[:6]:
-        p = per_profile[profile]
-        per_blocks.append(
-            f"""
-            <details class="card" open>
-              <summary class="card-title">Темы по аккаунту: {esc(profile)}</summary>
-              <div class="grid" style="margin-top:12px">
-                {table("Hashtags — top avg likes", p.get("top_hashtags_by_likes_avg") or [])}
-                {table("Hashtags — top avg views", p.get("top_hashtags_by_views_avg") or [])}
-                {table("Words — top avg likes", p.get("top_words_by_likes_avg") or [])}
-                {table("Words — top avg views", p.get("top_words_by_views_avg") or [])}
-              </div>
-              <div class="footer">* слова показаны как “стемы” (обрезанные основы), чтобы склеивать формы.</div>
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Темы по тексту</div>"
-        "<div class='muted'>Мы извлекаем хэштеги (#...) и слова из описаний, нормализуем и считаем средние лайки/просмотры. "
-        "Звёздочка (*) у слова означает, что это нормализованная основа.</div>"
-        "</div>"
-        "<div class='grid'>"
-        + table("Hashtags — топ по average likes", topics_for_report.get("top_hashtags_by_likes_avg") or [])
-        + table("Hashtags — топ по average views", topics_for_report.get("top_hashtags_by_views_avg") or [])
-        + table("Words — топ по average likes", topics_for_report.get("top_words_by_likes_avg") or [])
-        + table("Words — топ по average views", topics_for_report.get("top_words_by_views_avg") or [])
-        + "</div>"
-        + "<div style='margin-top:12px'>"
-        + "".join(per_blocks)
-        + "</div>"
-    )
-
-
-def _clusters_section_html(clusters_for_report: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    def link(u: Any) -> str:
-        uu = ("" if u is None else str(u)).strip()
-        if not uu:
-            return ""
-        return f'<a href="{esc(uu)}" target="_blank" rel="noopener noreferrer">{esc(uu)}</a>'
-
-    min_posts = int(clusters_for_report.get("min_cluster_posts") or 10)
-    min_edge = int(clusters_for_report.get("min_edge_cooccurrence") or 4)
-    min_tok = int(clusters_for_report.get("min_token_posts") or 6)
-
-    def chips(s: Any) -> str:
-        raw = ("" if s is None else str(s)).strip()
-        if not raw:
-            return ""
-        parts = [p.strip() for p in raw.split(",") if p.strip()]
-        return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(p)}*</span>" for p in parts) + "</div>"
-
-    examples = clusters_for_report.get("examples_by_cluster") or {}
-
-    def ex_links(cluster_id: Any) -> str:
-        ex = examples.get(str(cluster_id)) or {}
-        tl = ex.get("top_likes") or []
-        tv = ex.get("top_views") or []
-        if not tl and not tv:
-            return ""
-        def li(items, label):
-            if not items:
-                return ""
-            return "<div class='muted' style='margin-top:8px'>" + label + ":</div>" + "<ul>" + "".join(
-                f"<li><a href='{html.escape(i['url'])}' target='_blank' rel='noopener noreferrer'>{html.escape(i['profile'])}</a> — <span class='mono'>{i['value']}</span></li>"
-                for i in items
-            ) + "</ul>"
-        return "<div>" + li(tl, "Топ по лайкам") + li(tv, "Топ по просмотрам") + "</div>"
-
-    def table(title: str, rows: list[list[Any]]) -> str:
-        trs = []
-        for r in rows:
-            # cluster_id, posts_count, profiles_count, top_tokens, likes_sum, likes_avg, views_sum, views_avg, top_like_url, top_like, top_view_url, top_view
-            trs.append(
-                "<tr>"
-                f"<td class='mono'>{esc(r[0])}</td>"
-                f"<td>{chips(r[3])}</td>"
-                f"<td class='num'>{esc(r[1])}</td>"
-                f"<td class='num'>{esc(r[2])}</td>"
-                f"<td class='num'>{esc(r[4])}</td>"
-                f"<td class='num'>{esc(r[5])}</td>"
-                f"<td class='num'>{esc(r[6])}</td>"
-                f"<td class='num'>{esc(r[7])}</td>"
-                f"<td>{link(r[8])}</td>"
-                f"<td class='num'>{esc(r[9])}</td>"
-                f"<td>{link(r[10])}</td>"
-                f"<td class='num'>{esc(r[11])}</td>"
-                "</tr>"
-            )
-        return f"""
-        <div class="card">
-          <div class="card-title">{esc(title)}</div>
-          <div class="muted">Кластеризация по co-occurrence: min_token_posts={esc(min_tok)}, min_edge={esc(min_edge)}, min_cluster_posts={esc(min_posts)}.</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>id</th>
-                  <th>top_tokens</th>
-                  <th class="num">posts</th>
-                  <th class="num">profiles</th>
-                  <th class="num">likes_sum</th>
-                  <th class="num">likes_avg</th>
-                  <th class="num">views_sum</th>
-                  <th class="num">views_avg</th>
-                  <th>top_like_url</th>
-                  <th class="num">top_like</th>
-                  <th>top_view_url</th>
-                  <th class="num">top_view</th>
-                </tr>
-              </thead>
-              <tbody>
-                {''.join(trs) if trs else '<tr><td colspan="12" class="muted">Недостаточно данных</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        """
-
-    per_profile = clusters_for_report.get("per_profile") or {}
-    per_blocks = []
-    for profile in sorted(per_profile.keys())[:6]:
-        p = per_profile[profile]
-        per_blocks.append(
-            f"""
-            <details class="card">
-              <summary class="card-title">Кластеры по аккаунту: {esc(profile)}</summary>
-              <div class="grid" style="margin-top:12px">
-                {table("Топ кластеров по avg likes", p.get("top_by_likes_avg") or [])}
-                {table("Топ кластеров по avg views", p.get("top_by_views_avg") or [])}
-              </div>
-              <div class="footer">* токены в кластере — нормализованные основы (для склейки форм).</div>
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Умные темы (кластеры)</div>"
-        "<div class='muted'>Мы объединяем слова/хэштеги в кластеры по совместной встречаемости в постах. "
-        "Дальше пытаемся дать кластеру человеческое имя через <code>taxonomy.json</code> (если совпало). "
-        "В таблицах показаны топ‑токены кластера (это нормализованные основы, помечены *).</div>"
-        "</div>"
-        "<div class='grid'>"
-        + table("Кластеры — топ по average likes", clusters_for_report.get("top_by_likes_avg") or [])
-        + table("Кластеры — топ по average views", clusters_for_report.get("top_by_views_avg") or [])
-        + table("Кластеры — топ по количеству постов", clusters_for_report.get("top_by_posts") or [])
-        + "</div>"
-        + "<div style='margin-top:12px'>"
-        + "<details class='card'><summary class='card-title'>Примеры постов (по кластерам)</summary>"
-        + "<div class='muted'>Для каждого кластера показываем 3 лучших поста по лайкам и по просмотрам (если есть).</div>"
-        + "".join(
-            f"<details class='card' style='margin-top:10px'><summary class='card-title'>Cluster {esc(r[0])} — {esc(r[13] if len(r)>13 else '')}</summary>{ex_links(r[0])}</details>"
-            for r in (clusters_for_report.get("top_by_posts") or [])[:8]
-        )
-        + "</details>"
-        + "".join(per_blocks)
-        + "</div>"
-    )
-
-
-def _categories_section_html(categories_for_report: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    examples = categories_for_report.get("examples_by_category") or {}
-
-    def ex_links(cat_id: str) -> str:
-        ex = examples.get(cat_id) or {}
-        tl = ex.get("top_likes") or []
-        tv = ex.get("top_views") or []
-        if not tl and not tv:
-            return ""
-        def li(items, label):
-            if not items:
-                return ""
-            return "<div class='muted' style='margin-top:8px'>" + label + ":</div>" + "<ul>" + "".join(
-                f"<li><a href='{html.escape(i['url'])}' target='_blank' rel='noopener noreferrer'>{html.escape(i['profile'])}</a> — <span class='mono'>{i['value']}</span></li>"
-                for i in items
-            ) + "</ul>"
-        return "<div>" + li(tl, "Топ по лайкам") + li(tv, "Топ по просмотрам") + "</div>"
-
-    def table(title: str, rows: list[list[Any]]) -> str:
-        trs = []
-        for r in rows:
-            # category_id, category_title, posts_count, profiles_count, likes_sum, likes_avg, views_sum, views_avg
-            trs.append(
-                "<tr>"
-                f"<td>{esc(r[1])}</td>"
-                f"<td class='num'>{esc(r[2])}</td>"
-                f"<td class='num'>{esc(r[3])}</td>"
-                f"<td class='num'>{esc(r[4])}</td>"
-                f"<td class='num'>{esc(r[5])}</td>"
-                f"<td class='num'>{esc(r[6])}</td>"
-                f"<td class='num'>{esc(r[7])}</td>"
-                "</tr>"
-            )
-        return f"""
-        <div class="card">
-          <div class="card-title">{esc(title)}</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>category</th>
-                  <th class="num">posts</th>
-                  <th class="num">profiles</th>
-                  <th class="num">likes_sum</th>
-                  <th class="num">likes_avg</th>
-                  <th class="num">views_sum</th>
-                  <th class="num">views_avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {''.join(trs) if trs else '<tr><td colspan="7" class="muted">Нет данных</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        """
-
-    per_profile = categories_for_report.get("per_profile") or {}
-    per_blocks = []
-    for profile in sorted(per_profile.keys())[:6]:
-        rows = per_profile[profile]
-        per_blocks.append(
-            f"""
-            <details class="card">
-              <summary class="card-title">Категории по аккаунту: {esc(profile)}</summary>
-              <div class="grid" style="margin-top:12px">
-                {_categories_profile_table(rows)}
-              </div>
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Категории (человеческие темы)</div>"
-        "<div class='muted'>Категории берутся из <code>taxonomy.json</code> (можно редактировать keywords). "
-        "Посты автоматически относятся к самой подходящей категории по совпадению ключевых слов.</div>"
-        "</div>"
-        "<div class='grid'>"
-        + table("Категории — топ по количеству постов", categories_for_report.get("top_by_posts") or [])
-        + table("Категории — топ по average likes", categories_for_report.get("top_by_likes_avg") or [])
-        + table("Категории — топ по average views", categories_for_report.get("top_by_views_avg") or [])
-        + "</div>"
-        + "<div style='margin-top:12px'>"
-        + "<details class='card'><summary class='card-title'>Примеры постов (по категориям)</summary>"
-        + "<div class='muted'>Для каждой категории показываем 3 лучших поста по лайкам и по просмотрам (если есть).</div>"
-        + "".join(
-            f"<details class='card' style='margin-top:10px'><summary class='card-title'>{esc(r[1])}</summary>{ex_links(str(r[0]))}</details>"
-            for r in (categories_for_report.get("top_by_posts") or [])[:8]
-        )
-        + "</details>"
-        + "".join(per_blocks)
-        + "</div>"
-    )
-
-
-def _categories_profile_table(rows: list[list[Any]]) -> str:
-    """
-    rows schema:
-      [cat_id, title, posts, 1, likes_sum, likes_avg, likes_lift, views_sum, views_avg, views_lift]
-    """
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    trs = []
-    for r in rows:
-        # fallback for older rows
-        if len(r) < 10:
-            continue
-        trs.append(
-            "<tr>"
-            f"<td>{esc(r[1])}</td>"
-            f"<td class='num'>{esc(r[2])}</td>"
-            f"<td class='num'>{esc(r[5])}</td>"
-            f"<td class='num'>{esc('x'+str(r[6]))}</td>"
-            f"<td class='num'>{esc(r[8])}</td>"
-            f"<td class='num'>{esc('x'+str(r[9]))}</td>"
-            "</tr>"
-        )
-    return f"""
-    <div class="card">
-      <div class="card-title">Топ категорий (с lift)</div>
-      <div class="muted">Lift = во сколько раз категория лучше среднего по аккаунту (avg likes/views).</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>category</th>
-              <th class="num">posts</th>
-              <th class="num">likes_avg</th>
-              <th class="num">likes_lift</th>
-              <th class="num">views_avg</th>
-              <th class="num">views_lift</th>
-            </tr>
-          </thead>
-          <tbody>
-            {''.join(trs) if trs else '<tr><td colspan="6" class="muted">Недостаточно данных</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    """
-
-
-def _recommendations_section_html(recs: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    per = recs.get("per_profile") or {}
-    min_posts = int(recs.get("min_posts") or 8)
-
-    def items(title: str, arr: list[dict[str, Any]]) -> str:
-        if not arr:
-            return "<div class='muted'>Недостаточно данных</div>"
-        lis = []
-        for x in arr:
-            lis.append(
-                "<li>"
-                f"<b>{esc(x.get('category_title'))}</b> "
-                f"(posts={esc(x.get('posts'))}, share={esc(x.get('share'))}, score={esc(x.get('score'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))}) "
-                f"{('<a href=\"'+esc(x.get('top_like_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top like</a>' if x.get('top_like_url') else '')} "
-                f"{('<a href=\"'+esc(x.get('top_view_url'))+'\" target=\"_blank\" rel=\"noopener noreferrer\">top view</a>' if x.get('top_view_url') else '')}"
-                "</li>"
-            )
-        return "<ul>" + "".join(lis) + "</ul>"
-
-    blocks = []
-    for profile in sorted(per.keys()):
-        p = per[profile]
-        th = p.get("thresholds") or {}
-        blocks.append(
-            f"""
-            <details class="card" open>
-              <summary class="card-title">Рекомендации: {esc(profile)}</summary>
-              <div class="muted">Baseline: likes_avg={esc(p.get('baseline_likes_avg'))}, views_avg={esc(p.get('baseline_views_avg'))}. Минимум постов на категорию: {esc(min_posts)}.</div>
-              <div class="muted">Порог: scale score ≥ {esc(th.get('scale_lift'))} и доля ≤ {esc(th.get('low_share'))}. Reduce score ≤ {esc(th.get('reduce_lift'))} и доля ≥ {esc(th.get('high_share'))}.</div>
-              <div class="grid" style="margin-top:12px">
-                <div class="card">
-                  <div class="card-title">Масштабировать (работает и редко)</div>
-                  {items("scale", p.get("scale") or [])}
-                </div>
-                <div class="card">
-                  <div class="card-title">Сократить / перепаковать (плохо и часто)</div>
-                  {items("reduce", p.get("reduce") or [])}
-                </div>
-                <div class="card">
-                  <div class="card-title">Оставить (работает и уже часто)</div>
-                  {items("keep", p.get("keep") or [])}
-                </div>
-                <div class="card">
-                  <div class="card-title">Эксперимент (пока неясно)</div>
-                  {items("experiment", p.get("experiment") or [])}
-                </div>
-              </div>
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Рекомендации (по категориям)</div>"
-        "<div class='muted'>Категории = человеко‑читаемые темы из taxonomy. Рекомендации строятся по score (комбинация likes_lift и views_lift) и доле категории в контенте. Если категорий мало — см. рекомендации по кластерам ниже.</div>"
-        "</div>"
-        + "".join(blocks)
-    )
-
-
-def _cluster_recommendations_section_html(clusters_for_report: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    per = clusters_for_report.get("recommendations_per_profile") or {}
-
-    def chips(raw: Any) -> str:
-        s = ("" if raw is None else str(raw)).strip()
-        if not s:
-            return ""
-        parts = [p.strip() for p in s.split(",") if p.strip()]
-        return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(p)}*</span>" for p in parts) + "</div>"
-
-    def list_items(arr: list[dict[str, Any]]) -> str:
-        if not arr:
-            return "<div class='muted'>Нет</div>"
-        lis = []
-        for x in arr:
-            label = (x.get("label") or "").strip()
-            lis.append(
-                "<li>"
-                f"<b>Cluster {esc(x.get('cluster_id'))}</b>"
-                + (f" — {esc(label)}" if label else "")
-                + f" (posts={esc(x.get('posts'))}, share={esc(x.get('share'))}, score={esc(x.get('score'))}, likes_lift=x{esc(x.get('likes_lift'))}, views_lift=x{esc(x.get('views_lift'))})"
-                + chips(x.get("top_tokens"))
-                + "</li>"
-            )
-        return "<ul>" + "".join(lis) + "</ul>"
-
-    blocks = []
-    for profile in sorted(per.keys()):
-        p = per[profile]
-        th = p.get("thresholds") or {}
-        dominant = p.get("dominant")
-        blocks.append(
-            f"""
-            <details class="card">
-              <summary class="card-title">Рекомендации по кластерам: {esc(profile)}</summary>
-              <div class="muted">Кластеры = “умные темы” по совместной встречаемости. Порог: min_posts={esc(th.get('min_posts'))}, scale score≥{esc(th.get('scale'))} и share≤{esc(th.get('low_share'))}.</div>
-              {f"<div class='muted'>Доминирующий кластер: <b>Cluster {esc(dominant.get('cluster_id'))}</b> — share={esc(dominant.get('share'))}, score={esc(dominant.get('score'))}</div>" if dominant else ""}
-              <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Лучшие (top score)</div>{list_items(p.get("best") or [])}</div>
-                <div class="card"><div class="card-title">Худшие (low score)</div>{list_items(p.get("worst") or [])}</div>
-                <div class="card"><div class="card-title">Масштабировать</div>{list_items(p.get("scale") or [])}</div>
-                <div class="card"><div class="card-title">Сократить/перепаковать</div>{list_items(p.get("reduce") or [])}</div>
-                <div class="card"><div class="card-title">Оставить</div>{list_items(p.get("keep") or [])}</div>
-                <div class="card"><div class="card-title">Эксперимент</div>{list_items(p.get("experiment") or [])}</div>
-              </div>
-              <div class="footer">* токены — нормализованные основы (для склейки форм).</div>
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Рекомендации (по кластерам)</div>"
-        "<div class='muted'>Это более “умные” рекомендации: даже если taxonomy не покрывает все темы, кластеры показывают реальные группы контента.</div>"
-        "</div>"
-        + "".join(blocks)
-    )
-
-
-def _trends_section_html(trends: dict[str, Any]) -> str:
-    def esc(s: Any) -> str:
-        return html.escape("" if s is None else str(s))
-
-    months = trends.get("months") or []
-    per = trends.get("per_profile") or {}
-
-    def table(rows: list[dict[str, Any]]) -> str:
-        trs = []
-        for r in rows[-12:]:
-            trs.append(
-                "<tr>"
-                f"<td class='mono'>{esc(r.get('month'))}</td>"
-                f"<td>{esc(r.get('top_category'))}</td>"
-                f"<td class='num'>{esc(r.get('posts'))}</td>"
-                f"<td class='num'>{esc(r.get('likes_avg'))}</td>"
-                f"<td class='num'>{esc(r.get('views_avg'))}</td>"
-                "</tr>"
-            )
-        return (
-            "<div class='table-wrap'><table><thead><tr>"
-            "<th>month</th><th>top category</th><th class='num'>posts</th><th class='num'>likes_avg</th><th class='num'>views_avg</th>"
-            "</tr></thead><tbody>"
-            + ("".join(trs) if trs else "<tr><td colspan='5' class='muted'>Нет данных</td></tr>")
-            + "</tbody></table></div>"
-        )
-
-    blocks = []
-    for profile in sorted(per.keys()):
-        blocks.append(
-            f"""
-            <details class="card">
-              <summary class="card-title">Тренды по месяцам: {esc(profile)}</summary>
-              <div class="muted">Показываем самую частую категорию месяца и её средние метрики (последние 12 месяцев внутри периода).</div>
-              {table(per[profile])}
-            </details>
-            """
-        )
-
-    return (
-        "<div class='card'>"
-        "<div class='card-title'>Тренды</div>"
-        f"<div class='muted'>Период разбит на месяцы ({esc(len(months))}): {esc(months[0] if months else '')} … {esc(months[-1] if months else '')}.</div>"
-        "</div>"
-        + "".join(blocks)
-    )
-
-
 def _llm_section_html(llm: dict[str, Any]) -> str:
-    """
-    Показываем LLM-результаты (если были сгенерированы).
-    """
     if not llm:
         return (
             "<div class='card'>"
@@ -3335,6 +1344,16 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
         return html.escape("" if s is None else str(s))
 
     model = llm.get("model") or ""
+    error = llm.get("error")
+    if error:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>LLM анализ (только LLM)</div>"
+            f"<div class='muted'>Не удалось получить LLM‑анализ через Ollama. Ошибка: <code>{esc(error)}</code>.</div>"
+            f"<div class='muted' style='margin-top:8px'>Модель: <code>{esc(model)}</code>.</div>"
+            "</div>"
+        )
+
     blocks = []
     for p in llm.get("profiles", []) or []:
         prof = p.get("profile") or ""
@@ -3387,19 +1406,12 @@ def _ollama_chat_json(*, base_url: str, model: str, messages: list[dict[str, str
 
 
 def _build_llm_insights(*, rows: list[tuple[Any, ...]], start_s: str, end_s: str, model: str, base_url: str) -> dict[str, Any]:
-    """
-    LLM‑only анализ: для каждого профиля берём небольшую выборку постов + метрики,
-    просим LLM выдать темы и рекомендации.
-    """
-    # group rows by profile
     by_profile: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
     for r in rows:
         by_profile[str(r[0] or "")].append(r)
 
     out_profiles = []
-
     for profile, items in sorted(by_profile.items()):
-        # pick samples: top likes, top views, plus a few recent
         def to_int(x):
             try:
                 return int(x)
@@ -3457,7 +1469,6 @@ def _build_llm_insights(*, rows: list[tuple[Any, ...]], start_s: str, end_s: str
             timeout=180,
         )
         content = ((resp.get("message") or {}).get("content") or "").strip()
-        parsed = None
         try:
             parsed = json.loads(content)
         except Exception:
@@ -3490,7 +1501,8 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     apify_base_url = (os.environ.get("APIFY_BASE_URL") or "https://api.apify.com").strip()
     output_dir = Path(os.environ.get("OUTPUT_DIR", "output")).expanduser()
     db_path = Path(os.environ.get("DB_PATH", "cache/instagram_apify.sqlite")).expanduser()
-    taxonomy_path = Path(os.environ.get("TAXONOMY_FILE", "taxonomy.json")).expanduser()
+    ollama_base_url = (os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
+    ollama_model = (os.environ.get("OLLAMA_MODEL") or "llama3.2:3b").strip()
 
     refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
     if getattr(args, "update", False):
@@ -3498,27 +1510,26 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     if refresh_mode not in {"auto", "always", "never"}:
         raise SystemExit("Некорректный --refresh. Используй: auto | always | never")
 
-    analysis_mode = (getattr(args, "analysis", None) or "heuristic").strip().lower()
-    if analysis_mode not in {"heuristic", "llm", "both"}:
-        raise SystemExit("Некорректный --analysis. Используй: heuristic | llm | both")
+    analysis_mode = (getattr(args, "analysis", None) or "llm").strip().lower()
+    if analysis_mode not in {"llm", "none"}:
+        raise SystemExit("Некорректный --analysis. Используй: llm | none")
 
     return Config(
         apify_token=apify_token,
         apify_base_url=apify_base_url,
         output_dir=output_dir,
         db_path=db_path,
-        taxonomy_path=taxonomy_path,
         results_limit_per_type=max(1, int(args.limit)),
         refresh_mode=refresh_mode,
         check_limit=max(1, int(getattr(args, "check_limit", 1) or 1)),
         analysis_mode=analysis_mode,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model,
     )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Apify Instagram batch scraper: targets.csv + period + cache + summary"
-    )
+    parser = argparse.ArgumentParser(description="Apify Instagram batch scraper: targets + period + cache + summary + LLM-only analysis")
     parser.add_argument("--targets", default=os.environ.get("TARGETS_FILE", "targets.txt"))
     parser.add_argument("--start", default=None, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD end-exclusive (UTC)")
@@ -3526,18 +1537,13 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=2000, help="resultsLimit per type (posts/reels) per profile")
     parser.add_argument("--refresh", default="auto", help="auto | always | never (по умолчанию auto)")
     parser.add_argument("--check-limit", dest="check_limit", type=int, default=1, help="Сколько последних постов брать для проверки новых (по умолчанию 1)")
-    parser.add_argument("--analysis", default="heuristic", help="heuristic | llm | both (по умолчанию heuristic)")
+    parser.add_argument("--analysis", default="llm", help="llm | none (по умолчанию llm)")
     parser.add_argument(
         "--publish-dir",
         default=None,
-        help="Папка для публикации отчётов (например, docs для GitHub Pages). "
-        "Скопирует report_*.html + CSV и создаст docs/index.html",
+        help="Папка для публикации отчётов (например, docs для GitHub Pages). Скопирует report_*.html + CSV/JSON и создаст docs/index.html",
     )
-    parser.add_argument(
-        "--update",
-        action="store_true",
-        help="(устарело) то же, что --refresh always",
-    )
+    parser.add_argument("--update", action="store_true", help="(устарело) то же, что --refresh always")
     args = parser.parse_args()
 
     default_start, default_end = _resolve_period(args)
