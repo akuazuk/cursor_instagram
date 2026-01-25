@@ -2215,7 +2215,7 @@ def _vectara_extract_results(resp: dict[str, Any]) -> list[dict[str, Any]]:
 def _vectara_query_simple(*, cfg: Config, query: str, limit: int = 20, timeout: int = 30) -> list[dict[str, Any]]:
     """
     Use the simple single-corpus endpoint (GET).
-    We try both `query` and `q` parameter names for robustness.
+    Параметр запроса: `query` (см. GET /v2/corpora/:corpus_key/query).
     """
     if not _vectara_is_enabled(cfg):
         return []
@@ -2228,10 +2228,7 @@ def _vectara_query_simple(*, cfg: Config, query: str, limit: int = 20, timeout: 
         url = f"{base}/v2/corpora/{corpus}/query?{qs}"
         return _vectara_get_json(url=url, headers=headers, timeout=timeout)
 
-    try:
-        resp = call({"query": query, "limit": int(limit)})
-    except Exception:
-        resp = call({"q": query, "limit": int(limit)})
+    resp = call({"query": query, "limit": int(limit)})
     return _vectara_extract_results(resp)
 
 
