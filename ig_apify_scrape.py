@@ -38,6 +38,7 @@ class Config:
     results_limit_per_type: int
     refresh_mode: str  # auto | always | never
     check_limit: int
+    analysis_mode: str  # heuristic | llm | both
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -733,6 +734,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         recommendations_csv = cfg.output_dir / f"recommendations_{tag}.csv"
         recommendations_clusters_csv = cfg.output_dir / f"recommendations_clusters_{tag}.csv"
         trends_csv = cfg.output_dir / f"trends_categories_{tag}.csv"
+        llm_json = cfg.output_dir / f"llm_insights_{tag}.json"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -869,23 +871,47 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
 
         taxonomy = _load_taxonomy(cfg.taxonomy_path)
 
-        topics_rows, topics_for_report = _build_topics_analysis(rows)
-        _write_topics_csv(topics_csv, topics_rows)
+        topics_rows: list[list[Any]] = []
+        topics_for_report: dict[str, Any] = {}
+        clusters_rows: list[list[Any]] = []
+        clusters_for_report: dict[str, Any] = {}
+        categories_rows: list[list[Any]] = []
+        categories_for_report: dict[str, Any] = {}
+        recommendations_rows: list[list[Any]] = []
+        recommendations_for_report: dict[str, Any] = {}
+        rec_clusters_rows: list[list[Any]] = []
+        trends_rows: list[list[Any]] = []
+        trends_for_report: dict[str, Any] = {}
+        llm_for_report: dict[str, Any] = {}
 
-        clusters_rows, clusters_for_report = _build_clusters_analysis(rows, taxonomy=taxonomy)
-        _write_clusters_csv(clusters_csv, clusters_rows)
+        if cfg.analysis_mode in {"heuristic", "both"}:
+            topics_rows, topics_for_report = _build_topics_analysis(rows)
+            _write_topics_csv(topics_csv, topics_rows)
 
-        categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
-        _write_categories_csv(categories_csv, categories_rows)
+            clusters_rows, clusters_for_report = _build_clusters_analysis(rows, taxonomy=taxonomy)
+            _write_clusters_csv(clusters_csv, clusters_rows)
 
-        recommendations_rows, recommendations_for_report = _build_recommendations(rows, taxonomy=taxonomy)
-        _write_recommendations_csv(recommendations_csv, recommendations_rows)
+            categories_rows, categories_for_report = _build_categories_analysis(rows, taxonomy=taxonomy)
+            _write_categories_csv(categories_csv, categories_rows)
 
-        rec_clusters_rows = _build_cluster_recommendations_csv(clusters_for_report)
-        _write_cluster_recommendations_csv(recommendations_clusters_csv, rec_clusters_rows)
+            recommendations_rows, recommendations_for_report = _build_recommendations(rows, taxonomy=taxonomy)
+            _write_recommendations_csv(recommendations_csv, recommendations_rows)
 
-        trends_rows, trends_for_report = _build_category_trends(rows, taxonomy=taxonomy, start_s=start_s, end_s=end_s)
-        _write_trends_csv(trends_csv, trends_rows)
+            rec_clusters_rows = _build_cluster_recommendations_csv(clusters_for_report)
+            _write_cluster_recommendations_csv(recommendations_clusters_csv, rec_clusters_rows)
+
+            trends_rows, trends_for_report = _build_category_trends(rows, taxonomy=taxonomy, start_s=start_s, end_s=end_s)
+            _write_trends_csv(trends_csv, trends_rows)
+
+        if cfg.analysis_mode in {"llm", "both"}:
+            llm_for_report = _build_llm_insights(
+                rows=rows,
+                start_s=start_s,
+                end_s=end_s,
+                model=os.environ.get("OLLAMA_MODEL", "llama3.2:3b"),
+                base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            )
+            llm_json.write_text(json.dumps(llm_for_report, ensure_ascii=False, indent=2), encoding="utf-8")
 
         _write_html_report(
             output_path=report_html,
@@ -899,6 +925,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             recommendations_csv=recommendations_csv,
             recommendations_clusters_csv=recommendations_clusters_csv,
             trends_csv=trends_csv,
+            llm_json=llm_json,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
@@ -907,6 +934,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             categories_for_report=categories_for_report,
             recommendations_for_report=recommendations_for_report,
             trends_for_report=trends_for_report,
+            llm_for_report=llm_for_report,
         )
 
         outputs[f"items_{tag}"] = items_csv
@@ -917,6 +945,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         outputs[f"recommendations_{tag}"] = recommendations_csv
         outputs[f"recommendations_clusters_{tag}"] = recommendations_clusters_csv
         outputs[f"trends_categories_{tag}"] = trends_csv
+        if llm_json.exists():
+            outputs[f"llm_insights_{tag}"] = llm_json
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -2456,6 +2486,7 @@ def _write_html_report(
     recommendations_csv: Path,
     recommendations_clusters_csv: Path,
     trends_csv: Path,
+    llm_json: Path,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
@@ -2464,6 +2495,7 @@ def _write_html_report(
     categories_for_report: dict[str, Any],
     recommendations_for_report: dict[str, Any],
     trends_for_report: dict[str, Any],
+    llm_for_report: dict[str, Any],
 ) -> None:
     """
     Генерирует удобочитаемый HTML отчёт (локальная веб‑страница / GitHub Pages).
@@ -2592,6 +2624,7 @@ def _write_html_report(
     rel_recs = esc(recommendations_csv.name)
     rel_recs_clusters = esc(recommendations_clusters_csv.name)
     rel_trends = esc(trends_csv.name)
+    rel_llm_json = esc(llm_json.name)
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -2683,6 +2716,7 @@ def _write_html_report(
         <a class="pill" href="{rel_recs}">Скачать recommendations CSV</a>
         <a class="pill" href="{rel_recs_clusters}">Скачать recommendations (clusters) CSV</a>
         <a class="pill" href="{rel_trends}">Скачать trends CSV</a>
+        <a class="pill" href="{rel_llm_json}">Скачать llm_insights JSON</a>
       </div>
     </div>
 
@@ -2726,6 +2760,7 @@ def _write_html_report(
     {top_table("Топ‑10 по лайкам (все аккаунты)", top_likes)}
     {top_table("Топ‑10 по просмотрам/plays (все аккаунты)", top_views)}
 
+    {_llm_section_html(llm_for_report)}
     {_topics_section_html(topics_for_report)}
     {_categories_section_html(categories_for_report)}
     {_recommendations_section_html(recommendations_for_report)}
@@ -3284,6 +3319,168 @@ def _trends_section_html(trends: dict[str, Any]) -> str:
     )
 
 
+def _llm_section_html(llm: dict[str, Any]) -> str:
+    """
+    Показываем LLM-результаты (если были сгенерированы).
+    """
+    if not llm:
+        return (
+            "<div class='card'>"
+            "<div class='card-title'>LLM анализ</div>"
+            "<div class='muted'>LLM‑анализ не сгенерирован. Запусти скрипт с <code>--analysis llm</code> и локальным Ollama.</div>"
+            "</div>"
+        )
+
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s))
+
+    model = llm.get("model") or ""
+    blocks = []
+    for p in llm.get("profiles", []) or []:
+        prof = p.get("profile") or ""
+        recs = p.get("recommendations") or []
+        themes = p.get("themes") or []
+
+        def li(items):
+            if not items:
+                return "<div class='muted'>Нет</div>"
+            return "<ul>" + "".join(f"<li>{esc(x)}</li>" for x in items) + "</ul>"
+
+        blocks.append(
+            f"""
+            <details class="card" open>
+              <summary class="card-title">LLM: {esc(prof)}</summary>
+              <div class="grid" style="margin-top:12px">
+                <div class="card"><div class="card-title">Темы</div>{li(themes)}</div>
+                <div class="card"><div class="card-title">Рекомендации</div>{li(recs)}</div>
+              </div>
+            </details>
+            """
+        )
+
+    return (
+        "<div class='card'>"
+        "<div class='card-title'>LLM анализ (только LLM)</div>"
+        f"<div class='muted'>Модель: <code>{esc(model)}</code>. "
+        "Это генеративный анализ текстов постов + метрик. Результат сохраняется в <code>llm_insights_*.json</code>.</div>"
+        "</div>"
+        + "".join(blocks)
+    )
+
+
+def _ollama_chat_json(*, base_url: str, model: str, messages: list[dict[str, str]], timeout: int = 120) -> dict[str, Any]:
+    url = base_url.rstrip("/") + "/api/chat"
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": 0.2},
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url=url, data=data, method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except Exception as e:
+        raise RuntimeError(f"Ollama request failed: {e}") from e
+
+
+def _build_llm_insights(*, rows: list[tuple[Any, ...]], start_s: str, end_s: str, model: str, base_url: str) -> dict[str, Any]:
+    """
+    LLM‑only анализ: для каждого профиля берём небольшую выборку постов + метрики,
+    просим LLM выдать темы и рекомендации.
+    """
+    # group rows by profile
+    by_profile: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
+    for r in rows:
+        by_profile[str(r[0] or "")].append(r)
+
+    out_profiles = []
+
+    for profile, items in sorted(by_profile.items()):
+        # pick samples: top likes, top views, plus a few recent
+        def to_int(x):
+            try:
+                return int(x)
+            except Exception:
+                return None
+
+        items_sorted_likes = sorted(items, key=lambda r: to_int(r[7]) or 0, reverse=True)
+        items_sorted_views = sorted(items, key=lambda r: to_int(r[9]) or 0, reverse=True)
+        items_sorted_time = sorted(items, key=lambda r: str(r[4] or ""), reverse=True)
+
+        sample = []
+        seen = set()
+        for src in (items_sorted_likes[:8], items_sorted_views[:8], items_sorted_time[:8]):
+            for r in src:
+                u = str(r[5] or "")
+                if u in seen:
+                    continue
+                seen.add(u)
+                caption = str(r[10] or "")
+                caption = caption.replace("\n", " ").strip()
+                if len(caption) > 400:
+                    caption = caption[:399] + "…"
+                sample.append(
+                    {
+                        "url": u,
+                        "timestamp_utc": str(r[4] or ""),
+                        "likes": to_int(r[7]),
+                        "views": to_int(r[9]),
+                        "caption": caption,
+                    }
+                )
+        sample = sample[:20]
+
+        system = (
+            "Ты маркетолог-аналитик Instagram. "
+            "Твоя задача: по выборке постов и метрикам предложить темы контента и рекомендации. "
+            "Отвечай строго JSON объектом формата: "
+            '{"themes":[...], "recommendations":[...], "notes":[...]}'
+        )
+        user = {
+            "profile": profile,
+            "period": f"{start_s}..{end_s} (UTC, end-exclusive)",
+            "posts_sample": sample,
+            "requirements": {
+                "themes": "список 5-10 тем (кратко, по-русски)",
+                "recommendations": "список 5-10 рекомендаций (кратко, по-русски)",
+                "notes": "1-3 оговорки про качество данных (например views есть не у всех)",
+            },
+        }
+
+        resp = _ollama_chat_json(
+            base_url=base_url,
+            model=model,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": json.dumps(user, ensure_ascii=False)}],
+            timeout=180,
+        )
+        content = ((resp.get("message") or {}).get("content") or "").strip()
+        parsed = None
+        try:
+            parsed = json.loads(content)
+        except Exception:
+            parsed = {"themes": [], "recommendations": [], "notes": [content]}
+
+        out_profiles.append(
+            {
+                "profile": profile,
+                "themes": parsed.get("themes") if isinstance(parsed, dict) else [],
+                "recommendations": parsed.get("recommendations") if isinstance(parsed, dict) else [],
+                "notes": parsed.get("notes") if isinstance(parsed, dict) else [],
+            }
+        )
+
+    return {
+        "provider": "ollama",
+        "base_url": base_url,
+        "model": model,
+        "period": {"start": start_s, "end": end_s},
+        "profiles": out_profiles,
+    }
+
+
 def load_config_from_env(args: argparse.Namespace) -> Config:
     load_dotenv()
     apify_token = (os.environ.get("APIFY_TOKEN") or "").strip()
@@ -3301,6 +3498,10 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     if refresh_mode not in {"auto", "always", "never"}:
         raise SystemExit("Некорректный --refresh. Используй: auto | always | never")
 
+    analysis_mode = (getattr(args, "analysis", None) or "heuristic").strip().lower()
+    if analysis_mode not in {"heuristic", "llm", "both"}:
+        raise SystemExit("Некорректный --analysis. Используй: heuristic | llm | both")
+
     return Config(
         apify_token=apify_token,
         apify_base_url=apify_base_url,
@@ -3310,6 +3511,7 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
         results_limit_per_type=max(1, int(args.limit)),
         refresh_mode=refresh_mode,
         check_limit=max(1, int(getattr(args, "check_limit", 1) or 1)),
+        analysis_mode=analysis_mode,
     )
 
 
@@ -3324,6 +3526,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=2000, help="resultsLimit per type (posts/reels) per profile")
     parser.add_argument("--refresh", default="auto", help="auto | always | never (по умолчанию auto)")
     parser.add_argument("--check-limit", dest="check_limit", type=int, default=1, help="Сколько последних постов брать для проверки новых (по умолчанию 1)")
+    parser.add_argument("--analysis", default="heuristic", help="heuristic | llm | both (по умолчанию heuristic)")
     parser.add_argument(
         "--publish-dir",
         default=None,

@@ -14,6 +14,30 @@
 - Apify аккаунт и `APIFY_TOKEN`
 - Заполнить `.env` (см. `.env.example`)
 
+## LLM‑анализ (только LLM, бесплатно)
+
+Если хотите, чтобы темы/рекомендации делала **только LLM** (без правил/эвристик), используйте Ollama (локально, бесплатно):
+
+1) Установить Ollama и запустить сервис:
+
+```bash
+ollama serve
+```
+
+2) Скачать модель (пример):
+
+```bash
+ollama pull llama3.2:3b
+```
+
+3) Запуск скрапера с LLM‑анализом:
+
+```bash
+./.venv/bin/python ig_apify_scrape.py --analysis llm --publish-dir docs
+```
+
+LLM‑результат сохраняется в `output/llm_insights_<period>.json` и добавляется в HTML‑отчёт.
+
 ## Файл целей (проще всего) — `targets.txt`
 
 - По одной ссылке на профиль в строке.
