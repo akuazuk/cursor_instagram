@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instagram report 2026-01-01 → 2026-02-01</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111a2e;
+      --text: #e9eefc;
+      --muted: #9fb0d0;
+      --grid: rgba(255,255,255,0.08);
+      --accent: #7aa2ff;
+      --bar: #4f7dff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    }
+    body {
+      margin: 0; padding: 24px;
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,0.25), transparent 60%),
+                  radial-gradient(1200px 800px at 90% 10%, rgba(79,125,255,0.18), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    .header {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px;
+    }
+    .title { font-size: 22px; font-weight: 700; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-top: 6px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 30%), var(--card);
+      border: 1px solid var(--grid);
+      border-radius: 14px;
+      padding: 14px;
+      overflow: hidden;
+    }
+    .card-title { font-weight: 700; margin-bottom: 10px; }
+    .bar-row { display: grid; grid-template-columns: 140px 1fr 90px; gap: 10px; align-items: center; margin: 8px 0; }
+    .bar-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track { background: rgba(255,255,255,0.06); border-radius: 999px; height: 10px; overflow: hidden; }
+    .bar-fill { height: 100%; background: linear-gradient(90deg, var(--bar), rgba(122,162,255,0.8)); }
+    .bar-value { text-align: right; font-family: var(--mono); font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--grid); padding: 9px 10px; vertical-align: top; }
+    th { text-align: left; color: var(--muted); font-weight: 600; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td.num, th.num { text-align: right; font-family: var(--mono); }
+    .mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+    .caption { max-width: 420px; color: rgba(233,238,252,0.92); }
+    .muted { color: var(--muted); }
+    .links { display:flex; gap: 12px; flex-wrap: wrap; }
+    .pill {
+      display:inline-flex; align-items:center; gap:8px;
+      padding: 8px 10px; border-radius: 999px;
+      border: 1px solid var(--grid); background: rgba(255,255,255,0.03);
+      font-size: 13px;
+    }
+    .footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
+    details.card > summary { cursor: pointer; list-style: none; }
+    details.card > summary::-webkit-details-marker { display: none; }
+    .chips { display:flex; flex-wrap:wrap; gap: 8px; margin-top: 4px; }
+    .chip { display:inline-flex; align-items:center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--grid); background: rgba(255,255,255,0.03); font-size: 12px; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 120px 1fr 80px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <div class="title">Instagram report</div>
+        <div class="subtitle">Период: <span class="mono">2026-01-01 → 2026-02-01</span> (end-exclusive, UTC)</div>
+        <div class="subtitle">Что внутри: KPI по аккаунтам → топ‑посты → LLM‑анализ (только LLM).</div>
+      </div>
+      <div class="links">
+        <a class="pill" href="items_2026-01-01_to_2026-02-01.csv">Скачать items CSV</a>
+        <a class="pill" href="summary_2026-01-01_to_2026-02-01.csv">Скачать summary CSV</a>
+        <a class="pill" href="llm_benchmark_2026-01-01_to_2026-02-01.csv">Скачать benchmark CSV</a>
+        <a class="pill" href="benchmark_vs_kravira.by_2026-01-01_to_2026-02-01.csv">Скачать сравнение vs kravira.by (CSV)</a>
+        <a class="pill" href="llm_vs_kravira.by_2026-01-01_to_2026-02-01.json">Скачать сравнение vs kravira.by (JSON)</a>
+        <a class="pill" href="vectara_themes_2026-01-01_to_2026-02-01.csv">Скачать Vectara темы (CSV)</a>
+        <a class="pill" href="llm_insights_2026-01-01_to_2026-02-01.json">Скачать llm_insights JSON</a>
+      </div>
+    </div>
+
+    <div class="grid">
+      
+        <div class="card">
+          <div class="card-title">Постов/рилсов (шт)</div>
+          <div class="bar-list">
+            
+                <div class="bar-row">
+                  <div class="bar-label">proud_clinic</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:100.00%"></div></div>
+                  <div class="bar-value">12</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kravira.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:58.33%"></div></div>
+                  <div class="bar-value">7</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">mercimed.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:33.33%"></div></div>
+                  <div class="bar-value">4</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">sante.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:33.33%"></div></div>
+                  <div class="bar-value">4</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kaskadclinica</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:25.00%"></div></div>
+                  <div class="bar-value">3</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">lode.med</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:16.67%"></div></div>
+                  <div class="bar-value">2</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">nordin.medcentr</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:8.33%"></div></div>
+                  <div class="bar-value">1</div>
+                </div>
+                
+          </div>
+        </div>
+        
+      
+        <div class="card">
+          <div class="card-title">Лайки (сумма)</div>
+          <div class="bar-list">
+            
+                <div class="bar-row">
+                  <div class="bar-label">mercimed.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:100.00%"></div></div>
+                  <div class="bar-value">1284</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">lode.med</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:28.12%"></div></div>
+                  <div class="bar-value">361</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">proud_clinic</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:19.47%"></div></div>
+                  <div class="bar-value">250</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kravira.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:15.42%"></div></div>
+                  <div class="bar-value">198</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kaskadclinica</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:7.94%"></div></div>
+                  <div class="bar-value">102</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">nordin.medcentr</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:3.12%"></div></div>
+                  <div class="bar-value">40</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">sante.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:0.00%"></div></div>
+                  <div class="bar-value">0</div>
+                </div>
+                
+          </div>
+        </div>
+        
+      
+        <div class="card">
+          <div class="card-title">Просмотры/plays (сумма, где доступно)</div>
+          <div class="bar-list">
+            
+                <div class="bar-row">
+                  <div class="bar-label">proud_clinic</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:100.00%"></div></div>
+                  <div class="bar-value">30150</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">lode.med</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:48.21%"></div></div>
+                  <div class="bar-value">14535</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">mercimed.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:35.92%"></div></div>
+                  <div class="bar-value">10830</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kravira.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:18.00%"></div></div>
+                  <div class="bar-value">5427</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">sante.by</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:6.48%"></div></div>
+                  <div class="bar-value">1954</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">kaskadclinica</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:1.58%"></div></div>
+                  <div class="bar-value">476</div>
+                </div>
+                
+                <div class="bar-row">
+                  <div class="bar-label">nordin.medcentr</div>
+                  <div class="bar-track"><div class="bar-fill" style="width:1.44%"></div></div>
+                  <div class="bar-value">433</div>
+                </div>
+                
+          </div>
+        </div>
+        
+    </div>
+
+    <div class="card">
+      <div class="card-title">Сводка по аккаунтам</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>profile</th>
+              <th>profile_url</th>
+              <th class="num">items_total</th>
+              <th class="num">posts</th>
+              <th class="num">reels</th>
+              <th class="num">likes_sum</th>
+              <th class="num">likes_avg</th>
+              <th class="num">comments_sum</th>
+              <th class="num">comments_avg</th>
+              <th class="num">views_sum</th>
+              <th class="num">views_avg*</th>
+              <th>top_like_url</th>
+              <th class="num">top_like</th>
+              <th>top_view_url</th>
+              <th class="num">top_view</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>lode.med</td><td><a href="https://www.instagram.com/lode.med/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/lode.med/</a></td><td class='num'>2</td><td class='num'>2</td><td class='num'>0</td><td class='num'>361</td><td class='num'>180.5</td><td class='num'>5</td><td class='num'>2.5</td><td class='num'>14535</td><td class='num'>14535.0</td><td><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></td><td class='num'>261</td><td><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></td><td class='num'>14535</td></tr><tr><td>nordin.medcentr</td><td><a href="https://www.instagram.com/nordin.medcentr/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/nordin.medcentr/</a></td><td class='num'>1</td><td class='num'>1</td><td class='num'>0</td><td class='num'>40</td><td class='num'>40.0</td><td class='num'>3</td><td class='num'>3.0</td><td class='num'>433</td><td class='num'>433.0</td><td><a href="https://www.instagram.com/p/DTQV9GbCInD/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTQV9GbCInD/</a></td><td class='num'>40</td><td><a href="https://www.instagram.com/p/DTQV9GbCInD/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTQV9GbCInD/</a></td><td class='num'>433</td></tr><tr><td>mercimed.by</td><td><a href="https://www.instagram.com/mercimed.by/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/mercimed.by/</a></td><td class='num'>4</td><td class='num'>4</td><td class='num'>0</td><td class='num'>1284</td><td class='num'>321.0</td><td class='num'>156</td><td class='num'>39.0</td><td class='num'>10830</td><td class='num'>5415.0</td><td><a href="https://www.instagram.com/p/DT7gB_lDZP3/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT7gB_lDZP3/</a></td><td class='num'>734</td><td><a href="https://www.instagram.com/p/DT7gB_lDZP3/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT7gB_lDZP3/</a></td><td class='num'>7320</td></tr><tr><td>kravira.by</td><td><a href="https://www.instagram.com/kravira.by/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/kravira.by/</a></td><td class='num'>7</td><td class='num'>7</td><td class='num'>0</td><td class='num'>198</td><td class='num'>28.29</td><td class='num'>4</td><td class='num'>0.57</td><td class='num'>5427</td><td class='num'>1085.4</td><td><a href="https://www.instagram.com/p/DTsf0FVDOiX/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTsf0FVDOiX/</a></td><td class='num'>38</td><td><a href="https://www.instagram.com/p/DTsf0FVDOiX/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTsf0FVDOiX/</a></td><td class='num'>1790</td></tr><tr><td>kaskadclinica</td><td><a href="https://www.instagram.com/kaskadclinica/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/kaskadclinica/</a></td><td class='num'>3</td><td class='num'>3</td><td class='num'>0</td><td class='num'>102</td><td class='num'>34.0</td><td class='num'>0</td><td class='num'>0.0</td><td class='num'>476</td><td class='num'>476.0</td><td><a href="https://www.instagram.com/p/DTr16AQCEHq/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTr16AQCEHq/</a></td><td class='num'>54</td><td><a href="https://www.instagram.com/p/DTkFpanCO1q/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkFpanCO1q/</a></td><td class='num'>476</td></tr><tr><td>proud_clinic</td><td><a href="https://www.instagram.com/proud_clinic/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/proud_clinic/</a></td><td class='num'>12</td><td class='num'>12</td><td class='num'>0</td><td class='num'>250</td><td class='num'>20.83</td><td class='num'>114</td><td class='num'>9.5</td><td class='num'>30150</td><td class='num'>3768.75</td><td><a href="https://www.instagram.com/p/DTrjFycDJtb/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTrjFycDJtb/</a></td><td class='num'>71</td><td><a href="https://www.instagram.com/p/DTMzRURDfQK/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTMzRURDfQK/</a></td><td class='num'>6975</td></tr><tr><td>sante.by</td><td><a href="https://www.instagram.com/sante.by/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/sante.by/</a></td><td class='num'>4</td><td class='num'>4</td><td class='num'>0</td><td class='num'>0</td><td class='num'>0.0</td><td class='num'>6</td><td class='num'>1.5</td><td class='num'>1954</td><td class='num'>1954.0</td><td><a href="https://www.instagram.com/p/DTM1V-ZiFt6/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTM1V-ZiFt6/</a></td><td class='num'>-1</td><td><a href="https://www.instagram.com/p/DTPg6mFCCBK/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTPg6mFCCBK/</a></td><td class='num'>1954</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">* views_avg считается только по постам/рилсам, где Apify вернул views/plays.</div>
+    </div>
+
+    
+        <div class="card">
+          <div class="card-title">Топ‑10 по лайкам (все аккаунты)</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>profile</th>
+                  <th>timestamp_utc</th>
+                  <th>url</th>
+                  <th>kind</th>
+                  <th>media_type</th>
+                  <th class="num">likes</th>
+                  <th class="num">comments</th>
+                  <th class="num">views</th>
+                  <th>caption</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>mercimed.by</td><td class='mono'>2026-01-25T10:07:26+00:00</td><td><a href="https://www.instagram.com/p/DT7gB_lDZP3/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT7gB_lDZP3/</a></td><td>post</td><td>Video</td><td class='num'>734</td><td class='num'>128</td><td class='num'>7320</td><td class='caption'>🥳 5 лет команда Клиники «Мерси» помогает сохранять здоровье семьи с заботой о каждом!
+
+В благодарность за доверие мы хотим порадовать наших Пациентов и дарим 5 сертификатов по 200…</td></tr><tr><td>mercimed.by</td><td class='mono'>2026-01-25T07:58:12+00:00</td><td><a href="https://www.instagram.com/p/DT7RYEDDaIU/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT7RYEDDaIU/</a></td><td>post</td><td>Sidecar</td><td class='num'>371</td><td class='num'>14</td><td class='num'></td><td class='caption'>🎂Клинике «Мерси» – 5 лет!
+
+Все эти годы мы шаг за шагом собирали профессионалов своего дела, лучшие методики, мировые технологии и счастливые истории наших Пациентов.
+
+5 лет – это…</td></tr><tr><td>lode.med</td><td class='mono'>2026-01-16T09:22:50+00:00</td><td><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></td><td>post</td><td>Sidecar</td><td class='num'>261</td><td class='num'>2</td><td class='num'></td><td class='caption'>Если РЕЗУЛЬТАТ АНАЛИЗА нужен ПРЯМО СЕЙЧАС⏱️🚀
+
+В ЛОДЭ вы можете оперативно получить результаты. Просто выберите нужное исследование, добавьте услугу срочного выполнения — и ваш ана…</td></tr><tr><td>mercimed.by</td><td class='mono'>2026-01-21T11:43:30+00:00</td><td><a href="https://www.instagram.com/p/DTxXrgrjMTy/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTxXrgrjMTy/</a></td><td>post</td><td>Video</td><td class='num'>115</td><td class='num'>2</td><td class='num'>3510</td><td class='caption'>Отправляйте тому самому другу, у которого запотевают очки зимой🧐  ☝🏻Ваше зрение в нашем фокусе.
+
+💁🏻‍♀️ Записывайтесь на консультацию к нашим офтальмологам, чтобы получить честные …</td></tr><tr><td>lode.med</td><td class='mono'>2026-01-09T06:22:56+00:00</td><td><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></td><td>post</td><td>Video</td><td class='num'>100</td><td class='num'>3</td><td class='num'>14535</td><td class='caption'>Что входит в программу «Отложенное материнство»?
+
+В предыдущих частях серии мы уже обсудили:
+❓можно ли стать мамой в любом возрасте
+❓когда оптимально замораживать яйцеклетки 
+
+Есл…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-19T05:25:49+00:00</td><td><a href="https://www.instagram.com/p/DTrjFycDJtb/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTrjFycDJtb/</a></td><td>post</td><td>Video</td><td class='num'>71</td><td class='num'>2</td><td class='num'>3948</td><td class='caption'>В каком случае врач-пластический хирург Дужий Алексей Иванович делает трансконъективальную блефоропластику, расскажет в этом видео
+
+💬 Хотите записаться на консультацию к врачу-пла…</td></tr><tr><td>mercimed.by</td><td class='mono'>2026-01-06T15:47:20+00:00</td><td><a href="https://www.instagram.com/p/DTLL9bqjVHu/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTLL9bqjVHu/</a></td><td>post</td><td>Sidecar</td><td class='num'>64</td><td class='num'>12</td><td class='num'></td><td class='caption'>Специальные предложения января на медицинские услуги в Клинике «Мерси» уже ждут Вас в карусели👉🏼
+
+Записаться на прием в Клинику «Мерси» можно:
+📲через наш Instagram
+☎️по телефону 4…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-20T05:32:46+00:00</td><td><a href="https://www.instagram.com/p/DTuIruAjKen/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTuIruAjKen/</a></td><td>post</td><td>Video</td><td class='num'>57</td><td class='num'>6</td><td class='num'>2814</td><td class='caption'>EMFACE часто выбирают те, кто хочет улучшить качество кожи и тонус мышц без инъекций. В этом видео показан сам процесс процедуры. 
+
+💬 Хотите записаться на процедуру EMFACE? Пишите…</td></tr><tr><td>kaskadclinica</td><td class='mono'>2026-01-19T08:09:34+00:00</td><td><a href="https://www.instagram.com/p/DTr16AQCEHq/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTr16AQCEHq/</a></td><td>post</td><td>Sidecar</td><td class='num'>54</td><td class='num'>0</td><td class='num'></td><td class='caption'>Знакомьтесь: Прохоров Александр Викторович, онколог-хирург Клиники Каскад 👨‍⚕️
+
+➔ Доктор медицинских наук, профессор кафедры онкологии БГМУ
+➔ Врач высшей квалификационной категори…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-21T06:23:07+00:00</td><td><a href="https://www.instagram.com/p/DTwzUH_jcY4/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTwzUH_jcY4/</a></td><td>post</td><td>Image</td><td class='num'>48</td><td class='num'>4</td><td class='num'></td><td class='caption'>VASER-липосакция позволяет точно работать с жировыми ловушками и формировать контуры тела. Результат зависит от техники, реабилитации и индивидуальных особенностей пациента. Работ…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+    
+        <div class="card">
+          <div class="card-title">Топ‑10 по просмотрам/plays (все аккаунты)</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>profile</th>
+                  <th>timestamp_utc</th>
+                  <th>url</th>
+                  <th>kind</th>
+                  <th>media_type</th>
+                  <th class="num">likes</th>
+                  <th class="num">comments</th>
+                  <th class="num">views</th>
+                  <th>caption</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>lode.med</td><td class='mono'>2026-01-09T06:22:56+00:00</td><td><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></td><td>post</td><td>Video</td><td class='num'>100</td><td class='num'>3</td><td class='num'>14535</td><td class='caption'>Что входит в программу «Отложенное материнство»?
+
+В предыдущих частях серии мы уже обсудили:
+❓можно ли стать мамой в любом возрасте
+❓когда оптимально замораживать яйцеклетки 
+
+Есл…</td></tr><tr><td>mercimed.by</td><td class='mono'>2026-01-25T10:07:26+00:00</td><td><a href="https://www.instagram.com/p/DT7gB_lDZP3/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT7gB_lDZP3/</a></td><td>post</td><td>Video</td><td class='num'>734</td><td class='num'>128</td><td class='num'>7320</td><td class='caption'>🥳 5 лет команда Клиники «Мерси» помогает сохранять здоровье семьи с заботой о каждом!
+
+В благодарность за доверие мы хотим порадовать наших Пациентов и дарим 5 сертификатов по 200…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-07T06:51:36+00:00</td><td><a href="https://www.instagram.com/p/DTMzRURDfQK/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTMzRURDfQK/</a></td><td>post</td><td>Video</td><td class='num'>-1</td><td class='num'>15</td><td class='num'>6975</td><td class='caption'>Когда пациент возвращается на процедуру снова — это лучший показатель эффективности.
+В этом видео постоянная пациентка делится своими ощущениями от EMFACE
+
+💬 Хотите записаться на …</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-23T10:15:52+00:00</td><td><a href="https://www.instagram.com/p/DT2XeUuDfg1/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DT2XeUuDfg1/</a></td><td>post</td><td>Video</td><td class='num'>-1</td><td class='num'>26</td><td class='num'>5096</td><td class='caption'>Уникальное предложение! Только в Proud Clinic можно пройти комплексное обследование организма всего за два визита. 
+
+На первом приёме вы проходите консультацию терапевта, УЗИ и сд…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-16T08:08:48+00:00</td><td><a href="https://www.instagram.com/p/DTkHYaEDUL3/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkHYaEDUL3/</a></td><td>post</td><td>Video</td><td class='num'>-1</td><td class='num'>9</td><td class='num'>4077</td><td class='caption'>Когда пациентка приходит на консультацию, врач-косметолог Гульмира, как настоящий профессионал и стратег, всегда найдёт решение. Даже самое… нестандартное.
+
+💬 Хотите записаться на…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-02T06:27:21+00:00</td><td><a href="https://www.instagram.com/p/DS_4pZHDIZN/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DS_4pZHDIZN/</a></td><td>post</td><td>Video</td><td class='num'>-1</td><td class='num'>40</td><td class='num'>4075</td><td class='caption'>EMFACE работает одновременно с кожей и мышцами.Смотрите reels, чтобы узнать, почему процедура EMFACE так уникальна, и для чего она нужна именно вам.
+
+💬 Хотите записаться на процед…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-19T05:25:49+00:00</td><td><a href="https://www.instagram.com/p/DTrjFycDJtb/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTrjFycDJtb/</a></td><td>post</td><td>Video</td><td class='num'>71</td><td class='num'>2</td><td class='num'>3948</td><td class='caption'>В каком случае врач-пластический хирург Дужий Алексей Иванович делает трансконъективальную блефоропластику, расскажет в этом видео
+
+💬 Хотите записаться на консультацию к врачу-пла…</td></tr><tr><td>mercimed.by</td><td class='mono'>2026-01-21T11:43:30+00:00</td><td><a href="https://www.instagram.com/p/DTxXrgrjMTy/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTxXrgrjMTy/</a></td><td>post</td><td>Video</td><td class='num'>115</td><td class='num'>2</td><td class='num'>3510</td><td class='caption'>Отправляйте тому самому другу, у которого запотевают очки зимой🧐  ☝🏻Ваше зрение в нашем фокусе.
+
+💁🏻‍♀️ Записывайтесь на консультацию к нашим офтальмологам, чтобы получить честные …</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-20T05:32:46+00:00</td><td><a href="https://www.instagram.com/p/DTuIruAjKen/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTuIruAjKen/</a></td><td>post</td><td>Video</td><td class='num'>57</td><td class='num'>6</td><td class='num'>2814</td><td class='caption'>EMFACE часто выбирают те, кто хочет улучшить качество кожи и тонус мышц без инъекций. В этом видео показан сам процесс процедуры. 
+
+💬 Хотите записаться на процедуру EMFACE? Пишите…</td></tr><tr><td>proud_clinic</td><td class='mono'>2026-01-13T06:21:59+00:00</td><td><a href="https://www.instagram.com/p/DTcMyH2Dbau/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTcMyH2Dbau/</a></td><td>post</td><td>Video</td><td class='num'>-1</td><td class='num'>1</td><td class='num'>2522</td><td class='caption'>Пациенты часто спрашивают: есть ли разница между релатоксом и диспортом — и если да, то в чём именно. На видео — не только объяснение, но и сам процесс процедуры.
+
+💬 Хотите записа…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+
+    <div class='card'><div class='card-title'>LLM анализ (все посты, профессиональный бенчмарк)</div><div class='muted'>Модель: <code>llama3.2:3b</code>. LLM получает полный список постов за период (чанками) + KPI и собирает сравнительный бенчмарк центров.</div></div><div class='card'><div class='card-title'>Сравнительная таблица центров</div><div class='table-wrap'><table><thead><tr><th>profile</th><th>items_total</th><th>posts_per_week</th><th>likes_avg</th><th>views_avg</th><th>positioning</th><th>top_pillars</th><th>priority_actions</th></tr></thead><tbody><tr><td>kaskadclinica</td><td>3</td><td>3.5</td><td>34.0</td><td>476.0</td><td></td><td>Клиника Каскад; Специалисты Клиники Каскад</td><td>P1</td></tr><tr><td>kravira.by</td><td>7</td><td>2.88</td><td>28.29</td><td>1085.4</td><td></td><td>Контент-пиллер: «Записаться на консультацию»; Уникальный номер для записи на консультацию; Скидка 15% на ЭВЛК за фиксированное время</td><td>P1</td></tr><tr><td>lode.med</td><td>2</td><td>1.75</td><td>180.5</td><td>14535.0</td><td></td><td>Контент-пиллер: Результаты анализа; Контент-пиллер: Обучение и информирование; Контент-пиллер: События и акции</td><td>P1</td></tr><tr><td>mercimed.by</td><td>4</td><td>1.47</td><td>321.0</td><td>5415.0</td><td>Клиника «Мерси» - медицинский центр с высоким уровнем экспертизы и качественных услуг</td><td>Уникальная комбинация методик и технологий для лечения различных заболеваний; Представлениеclinики; Сохранение здоровья семьи</td><td>P1</td></tr><tr><td>nordin.medcentr</td><td>1</td><td>7.0</td><td>40.0</td><td>433.0</td><td></td><td>Контент-пиллер: Пresentation of medical projects; Контент-пиллер: Информация о медицинском центре</td><td>P1</td></tr><tr><td>proud_clinic</td><td>12</td><td>3.82</td><td>41.67</td><td>3768.75</td><td></td><td>Уникальное предложение; Продвижение услуг</td><td>P1: Улучшение информирования пациентов о услугах; P2: Развитие уникального предложения; P3: Улучшение качества контента</td></tr><tr><td>sante.by</td><td>4</td><td>1.87</td><td></td><td>1954.0</td><td></td><td>Позиционирование на Instagram; Аудитория Instagram; Сообщения на Instagram; CTA (запросы к действию) на Instagram</td><td>P1</td></tr></tbody></table></div></div>
+            <details class="card" open>
+              <summary class="card-title">LLM: kaskadclinica</summary>
+              <div class='muted'>Постов: <span class='mono'>3</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>34.0</span>, views avg*: <span class='mono'>476.0</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Болесные и здоровые люди, интересующиеся медицинскими услугами</li><li>Болесные люди, ищущие экспертов в области онкологии</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Клиника Каскад</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>Sidecar</span></div></li><li><b>Специалисты Клиники Каскад</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>Уникальная комбинация онкологических и хирургических услуг</li><li>Видеоматериалы и Sidecar-โพсти с высоким качеством</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: kravira.by</summary>
+              <div class='muted'>Постов: <span class='mono'>7</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>28.29</span>, views avg*: <span class='mono'>1085.4</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Пациенты с проблемами с circulation и skin</li><li>Пациенты с проблемами с circulation и skin</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Контент-пиллер: «Записаться на консультацию»</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>Video</span></div></li><li><b>Уникальный номер для записи на консультацию</b> — 0%</li><li><b>Скидка 15% на ЭВЛК за фиксированное время</b> — 0%</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>Повышение занимаемой доли клиентов</li><li>Упрощение процесса записи на консультацию</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>Уникальный номер для записи на консультацию</li><li>Скидка 15% на ЭВЛК за фиксированное время</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: lode.med</summary>
+              <div class='muted'>Постов: <span class='mono'>2</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>180.5</span>, views avg*: <span class='mono'>14535.0</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Медицинские центры</li><li>Пациенты и родители</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Контент-пиллер: Результаты анализа</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>Sidecar</span></div></li><li><b>Контент-пиллер: Обучение и информирование</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>Контент-пиллер: События и акции</b> — 0%</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>Уникальный подход к анализу результатов</li><li>Продвижение программ и услуг</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: mercimed.by</summary>
+              <div class='muted'>Постов: <span class='mono'>4</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>321.0</span>, views avg*: <span class='mono'>5415.0</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div>Клиника «Мерси» - медицинский центр с высоким уровнем экспертизы и качественных услуг</div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>больные</li><li>их семьи</li><li>профессионалы medиков</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Уникальная комбинация методик и технологий для лечения различных заболеваний</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>sidecar</span></div></li><li><b>Представлениеclinики</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>sidecar</span></div></li><li><b>Сохранение здоровья семьи</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>sidecar</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>likes</li><li>comments</li><li>views</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: nordin.medcentr</summary>
+              <div class='muted'>Постов: <span class='mono'>1</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>40.0</span>, views avg*: <span class='mono'>433.0</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Болеющие и интересующиеся медицинскими технологиями</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Контент-пиллер: Пresentation of medical projects</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>reel</span></div></li><li><b>Контент-пиллер: Информация о медицинском центре</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>reel</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>Болеющие и интересующиеся медицинскими технологиями получают информацию о новых проектах в режиме реального времени</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: proud_clinic</summary>
+              <div class='muted'>Постов: <span class='mono'>12</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>41.67</span>, views avg*: <span class='mono'>3768.75</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Пациенты с проблемами с кожей и мышцами</li><li>Пациенты с проблемами с кожей</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Уникальное предложение</b> — 0%<div class='chips'><span class='chip'>post</span><span class='chip'>sidecar</span></div></li><li><b>Продвижение услуг</b> — 0%<div class='chips'><span class='chip'>reel</span><span class='chip'>post</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 Улучшение информирования пациентов о услугах: Пациенты будут более заинтересованы в комплексном обследовании организма, если получат точную и полную информацию о услугах | тест:  | метрика:  | эффект:</li><li>P2 Развитие уникального предложения: Пациенты будут более заинтересованы в комплексном обследовании организма, если получат уникальное предложение с личным подходом | тест:  | метрика:  | эффект:</li><li>P3 Улучшение качества контента: Пациенты будут более заинтересованы в комплексном обследовании организма, если получат качественный и информативный контент | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+            <details class="card" open>
+              <summary class="card-title">LLM: sante.by</summary>
+              <div class='muted'>Постов: <span class='mono'>4</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'></span>, views avg*: <span class='mono'>1954.0</span></div>
+              <div class="grid" style="margin-top:12px">
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>мужчины</li><li>женщины</li><li>семьи</li><li>дети</li><li>старшие дети</li><li>клиенты</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Позиционирование на Instagram</b> — 0%</li><li><b>Аудитория Instagram</b> — 0%<div class='chips'><span class='chip'>reel</span><span class='chip'>post</span></div></li><li><b>Сообщения на Instagram</b> — 0%</li><li><b>CTA (запросы к действию) на Instagram</b> — 0%</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <div class='muted'>Нет</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
+              </div>
+            </details>
+            
+    <div class='card'><div class='card-title'>Сравнение всех центров с kravira.by (baseline)</div><div class='muted'>Здесь показаны относительные метрики конкурентов vs baseline и рекомендации для baseline, основанные на сильных сторонах конкурентов.</div></div><div class='card'><div class='card-title'>Таблица сравнения (× к baseline)</div><div class='table-wrap'><table><thead><tr><th>конкурент</th><th>частота×</th><th>лайки p50×</th><th>лайки p75×</th><th>комменты×</th><th>просмотры p50×</th><th>просмотры p75×</th><th>топ‑преимущества</th></tr></thead><tbody><tr><td>kaskadclinica</td><td>1.22</td><td>1.04</td><td>0.82</td><td>0.00</td><td>0.46</td><td>0.42</td><td>posts_per_week×1.22</td></tr><tr><td>lode.med</td><td>0.61</td><td>6.69</td><td>2.94</td><td>4.39</td><td>14.13</td><td>12.90</td><td>views_median×14.13; views_p75×12.90; likes_median×6.69; comments_avg×4.39</td></tr><tr><td>mercimed.by</td><td>0.51</td><td>9.00</td><td>10.91</td><td>68.42</td><td>5.26</td><td>3.11</td><td>comments_avg×68.42; likes_p75×10.91; likes_median×9.00; views_median×5.26</td></tr><tr><td>nordin.medcentr</td><td>2.43</td><td>1.48</td><td>1.18</td><td>5.26</td><td>0.42</td><td>0.38</td><td>comments_avg×5.26; posts_per_week×2.43; likes_median×1.48; likes_p75×1.18</td></tr><tr><td>proud_clinic</td><td>1.33</td><td>1.41</td><td>1.41</td><td>16.67</td><td>3.90</td><td>3.62</td><td>comments_avg×16.67; views_median×3.90; views_p75×3.62; likes_p75×1.41</td></tr><tr><td>sante.by</td><td>0.65</td><td></td><td></td><td>2.63</td><td>1.90</td><td>1.73</td><td>comments_avg×2.63; views_median×1.90; views_p75×1.73</td></tr></tbody></table></div></div><div class='grid' style='margin-top:12px'><div class='card'><div class='card-title'>Ключевые выводы</div><ul><li>Надлежащее продвижение программ и услуг имеет важное значение для привлечения пациентов. Создание уникальных видеоматериалов и Sidecar-постов с высоким качеством может помочь увеличить просмотр и комментарии. Улучшение контента с точки зрения сохранения здоровья семьи также является ключевым аспектом продвижения программ и услуг.</li></ul></div><div class='card'><div class='card-title'>План для baseline на 30 дней</div><ul><li>разработка уникального подхода к продвижению программ и услуг</li><li>создание видеоматериалов и Sidecar-постов с высоким качеством</li><li>Улучшить контент с точки зрения сохранения здоровья семьи</li></ul></div></div>
+    <div class='card'><div class='card-title'>Vectara: тематический бенчмарк (семантический поиск)</div><div class='muted'>Для каждой темы Vectara выбирает релевантные посты и показывает, у кого медианные метрики выше. Это помогает понять, где конкуренты сильнее именно по формату/смыслам.</div><div class='muted'>Индексация: indexed=33, skipped=0</div></div><div class='card'><div class='card-title'>Таблица по темам</div><div class='table-wrap'><table><thead><tr><th>тема</th><th>лидер</th><th>лидер: views p50</th><th>лидер: likes p50</th><th>baseline</th><th>baseline: views p50</th><th>baseline: likes p50</th><th>примеры лидера</th></tr></thead><tbody><tr><td>Отзывы / доверие</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Врач / экспертность</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Разбор случая</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Процедура: как проходит</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Цены / прозрачность</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Оборудование / технологии</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Команда / закулисье</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr><tr><td>Профилактика / полезное</td><td>lode.med</td><td>14535.0</td><td>180.5</td><td>kravira.by</td><td>1029.0</td><td>27.0</td><td><div class='chips'><span class='chip'><a href="https://www.instagram.com/p/DTR5kfFDTH-/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTR5kfFDTH-/</a></span><span class='chip'><a href="https://www.instagram.com/p/DTkP6BZDE04/" target="_blank" rel="noopener noreferrer">https://www.instagram.com/p/DTkP6BZDE04/</a></span></div></td></tr></tbody></table></div></div>
+
+    <div class="footer">
+      Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,7 @@
+competitor,baseline,posts_per_week_ratio,likes_median_ratio,likes_p75_ratio,comments_avg_ratio,views_median_ratio,views_p75_ratio,top_advantages
+kaskadclinica,kravira.by,1.22,1.04,0.82,0.00,0.46,0.42,posts_per_week×1.22
+lode.med,kravira.by,0.61,6.69,2.94,4.39,14.13,12.90,views_median×14.13; views_p75×12.90; likes_median×6.69; comments_avg×4.39
+mercimed.by,kravira.by,0.51,9.00,10.91,68.42,5.26,3.11,comments_avg×68.42; likes_p75×10.91; likes_median×9.00; views_median×5.26
+nordin.medcentr,kravira.by,2.43,1.48,1.18,5.26,0.42,0.38,comments_avg×5.26; posts_per_week×2.43; likes_median×1.48; likes_p75×1.18
+proud_clinic,kravira.by,1.33,1.41,1.41,16.67,3.90,3.62,comments_avg×16.67; views_median×3.90; views_p75×3.62; likes_p75×1.41
+sante.by,kravira.by,0.65,,,2.63,1.90,1.73,comments_avg×2.63; views_median×1.90; views_p75×1.73

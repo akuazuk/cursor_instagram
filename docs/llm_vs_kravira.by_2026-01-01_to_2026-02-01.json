@@ -1,0 +1,253 @@
+{
+  "baseline": "kravira.by",
+  "vs_table": [
+    {
+      "competitor": "kaskadclinica",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "1.22",
+      "likes_median_ratio": "1.04",
+      "likes_p75_ratio": "0.82",
+      "comments_avg_ratio": "0.00",
+      "views_median_ratio": "0.46",
+      "views_p75_ratio": "0.42",
+      "top_advantages": "posts_per_week×1.22"
+    },
+    {
+      "competitor": "lode.med",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "0.61",
+      "likes_median_ratio": "6.69",
+      "likes_p75_ratio": "2.94",
+      "comments_avg_ratio": "4.39",
+      "views_median_ratio": "14.13",
+      "views_p75_ratio": "12.90",
+      "top_advantages": "views_median×14.13; views_p75×12.90; likes_median×6.69; comments_avg×4.39"
+    },
+    {
+      "competitor": "mercimed.by",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "0.51",
+      "likes_median_ratio": "9.00",
+      "likes_p75_ratio": "10.91",
+      "comments_avg_ratio": "68.42",
+      "views_median_ratio": "5.26",
+      "views_p75_ratio": "3.11",
+      "top_advantages": "comments_avg×68.42; likes_p75×10.91; likes_median×9.00; views_median×5.26"
+    },
+    {
+      "competitor": "nordin.medcentr",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "2.43",
+      "likes_median_ratio": "1.48",
+      "likes_p75_ratio": "1.18",
+      "comments_avg_ratio": "5.26",
+      "views_median_ratio": "0.42",
+      "views_p75_ratio": "0.38",
+      "top_advantages": "comments_avg×5.26; posts_per_week×2.43; likes_median×1.48; likes_p75×1.18"
+    },
+    {
+      "competitor": "proud_clinic",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "1.33",
+      "likes_median_ratio": "1.41",
+      "likes_p75_ratio": "1.41",
+      "comments_avg_ratio": "16.67",
+      "views_median_ratio": "3.90",
+      "views_p75_ratio": "3.62",
+      "top_advantages": "comments_avg×16.67; views_median×3.90; views_p75×3.62; likes_p75×1.41"
+    },
+    {
+      "competitor": "sante.by",
+      "baseline": "kravira.by",
+      "posts_per_week_ratio": "0.65",
+      "likes_median_ratio": "",
+      "likes_p75_ratio": "",
+      "comments_avg_ratio": "2.63",
+      "views_median_ratio": "1.90",
+      "views_p75_ratio": "1.73",
+      "top_advantages": "comments_avg×2.63; views_median×1.90; views_p75×1.73"
+    }
+  ],
+  "comparisons": [
+    {
+      "competitor": "lode.med",
+      "where_competitor_better": [
+        "views_p75×12.9",
+        "views_median×14.13",
+        "likes_p75×2.94",
+        "likes_median×6.69",
+        "comments_avg×4.39"
+      ],
+      "what_they_do_better": [
+        "продвижение программ и услуг; оперативное получение результатов анализа"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "разработка уникального подхода к продвижению программ и услуг",
+          "why": "предоставление оперативных результатов анализа",
+          "how": "создание уникальной стратегии продвижения программ и услуг",
+          "kpi": "рост посещений и зарегистрированных клиентов",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DTkP6BZDE04/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "kaskadclinica",
+      "where_competitor_better": [
+        "posts_per_week×1.22"
+      ],
+      "what_they_do_better": [
+        "создание видеоматериалов с высоким качеством",
+        "создание Sidecar-постов с высоким качеством"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "создать видеоматериалы и Sidecar-пости с высоким качеством",
+          "why": "преимущество competitor в создании видеоматериалов и Sidecar-постов с высоким качеством",
+          "how": "написать уникальные и интересные описания для своих видеоматериалов и Sidecar-постов, использовать high-quality изображения и видео",
+          "kpi": "posts_per_week",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DTr16AQCEHq/",
+            "https://www.instagram.com/p/DTc0zVHiGm6/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "mercimed.by",
+      "where_competitor_better": [
+        "views_p75×3.11",
+        "views_median×5.26",
+        "likes_p75×10.91",
+        "likes_median×9.0",
+        "comments_avg×68.42"
+      ],
+      "what_they_do_better": [
+        "Клиника «Мерси» имеет более высокие показатели в таких метриках, как среднее значение просмотров за 75% и среднее количество комментариев."
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "Улучшить контент с точки зрения сохранения здоровья семьи",
+          "why": "Клиника «Мерси» имеет более высокие показатели в таких метриках, как среднее значение просмотров за 75% и среднее количество комментариев.",
+          "how": "Разработать контент, который фокусируется на сохранении здоровья семьи, а также использовать более эффективные методы для привлечения аудитории.",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DT7gB_lDZP3/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "nordin.medcentr",
+      "where_competitor_better": [
+        "likes_p75×1.18",
+        "likes_median×1.48",
+        "comments_avg×5.26",
+        "posts_per_week×2.43"
+      ],
+      "what_they_do_better": [
+        "получают информацию о новых проектах в режиме реального времени; представляют проекты «Вехи Нордина»; предлагают информацию о медицинском центре"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "развивать контент-пиллер «Информация о медицинском центре»",
+          "why": "",
+          "how": "",
+          "kpi": "likes_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DTQV9GbCInD/"
+          ]
+        },
+        {
+          "initiative": "создание новой серии постов с информацией о новых проектах",
+          "why": "",
+          "how": "",
+          "kpi": "likes_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DTsf0FVDOiX/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "sante.by",
+      "where_competitor_better": [
+        "views_p75×1.73",
+        "views_median×1.9",
+        "comments_avg×2.63"
+      ],
+      "what_they_do_better": [
+        "СANTEБЫ использует более эффективные стратегии позиционирования на Instagram, что приводит к более высоким показателям просмотра видеоматериалов и комментариев"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "Улучшить стратегию позиционирования на Instagram",
+          "why": "СANTE.BY использует более эффективные стратегии позиционирования на Instagram, что приводит к более высоким показателям просмотра видеоматериалов и комментариев",
+          "how": "Проделать анализ competitor, определить ключевые слова и темы, которые используют САНТЕБЫ, и внедрить их в свою стратегию позиционирования на Instagram",
+          "kpi": "Повышение показателей просмотра видеоматериалов и комментариев на 20-30%",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DTPg6mFCCBK/",
+            "https://www.instagram.com/p/DTw8buMiIcL/",
+            "https://www.instagram.com/p/DTw8buMiIcL/"
+          ]
+        }
+      ]
+    },
+    {
+      "competitor": "proud_clinic",
+      "where_competitor_better": [
+        "views_p75×3.62",
+        "views_median×3.9",
+        "likes_p75×1.41",
+        "likes_median×1.41",
+        "comments_avg×16.67",
+        "posts_per_week×1.33"
+      ],
+      "what_they_do_better": [
+        "пroud_clinic использует уникальное предложение; proud_clinic продвигает свои услуги; proud_clinic делает более эффективные процедуры; proud_clinic предоставляет больше информации о своих услугах"
+      ],
+      "recommendations_for_baseline": [
+        {
+          "initiative": "разработка уникального предложения",
+          "why": "пroud_clinic использует уникальное предложение, что привлекает пациентов;",
+          "how": "разработайте уникальный подход к своим услугам, который отличается от других медицинских центров.",
+          "kpi": "views_p75",
+          "evidence_urls": [
+            "https://www.instagram.com/p/DT2XeUuDfg1/"
+          ]
+        }
+      ]
+    }
+  ],
+  "baseline_30d_plan": [
+    {
+      "priority": "P1",
+      "initiative": "разработка уникального подхода к продвижению программ и услуг",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    },
+    {
+      "priority": "P2",
+      "initiative": "создание видеоматериалов и Sidecar-постов с высоким качеством",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    },
+    {
+      "priority": "P3",
+      "initiative": "Улучшить контент с точки зрения сохранения здоровья семьи",
+      "hypothesis": "",
+      "test": "",
+      "success_metric": "",
+      "expected_impact": ""
+    }
+  ],
+  "global_takeaways": [
+    "Надлежащее продвижение программ и услуг имеет важное значение для привлечения пациентов. Создание уникальных видеоматериалов и Sidecar-постов с высоким качеством может помочь увеличить просмотр и комментарии. Улучшение контента с точки зрения сохранения здоровья семьи также является ключевым аспектом продвижения программ и услуг."
+  ]
+}

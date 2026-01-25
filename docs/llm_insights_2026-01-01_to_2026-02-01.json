@@ -1,0 +1,674 @@
+{
+  "provider": "ollama",
+  "base_url": "http://localhost:11434",
+  "model": "llama3.2:3b",
+  "period": {
+    "start": "2026-01-01",
+    "end": "2026-02-01"
+  },
+  "benchmark": {
+    "columns": [
+      "profile",
+      "items_total",
+      "posts_per_week",
+      "likes_avg",
+      "views_avg",
+      "positioning",
+      "top_pillars",
+      "priority_actions"
+    ],
+    "rows": [
+      {
+        "profile": "kaskadclinica",
+        "items_total": 3,
+        "posts_per_week": 3.5,
+        "likes_avg": 34.0,
+        "views_avg": 476.0,
+        "positioning": "",
+        "top_pillars": "Клиника Каскад; Специалисты Клиники Каскад",
+        "priority_actions": "P1"
+      },
+      {
+        "profile": "kravira.by",
+        "items_total": 7,
+        "posts_per_week": 2.88,
+        "likes_avg": 28.29,
+        "views_avg": 1085.4,
+        "positioning": "",
+        "top_pillars": "Контент-пиллер: «Записаться на консультацию»; Уникальный номер для записи на консультацию; Скидка 15% на ЭВЛК за фиксированное время",
+        "priority_actions": "P1"
+      },
+      {
+        "profile": "lode.med",
+        "items_total": 2,
+        "posts_per_week": 1.75,
+        "likes_avg": 180.5,
+        "views_avg": 14535.0,
+        "positioning": "",
+        "top_pillars": "Контент-пиллер: Результаты анализа; Контент-пиллер: Обучение и информирование; Контент-пиллер: События и акции",
+        "priority_actions": "P1"
+      },
+      {
+        "profile": "mercimed.by",
+        "items_total": 4,
+        "posts_per_week": 1.47,
+        "likes_avg": 321.0,
+        "views_avg": 5415.0,
+        "positioning": "Клиника «Мерси» - медицинский центр с высоким уровнем экспертизы и качественных услуг",
+        "top_pillars": "Уникальная комбинация методик и технологий для лечения различных заболеваний; Представлениеclinики; Сохранение здоровья семьи",
+        "priority_actions": "P1"
+      },
+      {
+        "profile": "nordin.medcentr",
+        "items_total": 1,
+        "posts_per_week": 7.0,
+        "likes_avg": 40.0,
+        "views_avg": 433.0,
+        "positioning": "",
+        "top_pillars": "Контент-пиллер: Пresentation of medical projects; Контент-пиллер: Информация о медицинском центре",
+        "priority_actions": "P1"
+      },
+      {
+        "profile": "proud_clinic",
+        "items_total": 12,
+        "posts_per_week": 3.82,
+        "likes_avg": 41.67,
+        "views_avg": 3768.75,
+        "positioning": "",
+        "top_pillars": "Уникальное предложение; Продвижение услуг",
+        "priority_actions": "P1: Улучшение информирования пациентов о услугах; P2: Развитие уникального предложения; P3: Улучшение качества контента"
+      },
+      {
+        "profile": "sante.by",
+        "items_total": 4,
+        "posts_per_week": 1.87,
+        "likes_avg": "",
+        "views_avg": 1954.0,
+        "positioning": "",
+        "top_pillars": "Позиционирование на Instagram; Аудитория Instagram; Сообщения на Instagram; CTA (запросы к действию) на Instagram",
+        "priority_actions": "P1"
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "profile": "kaskadclinica",
+      "kpis": {
+        "profile": "kaskadclinica",
+        "profile_url": "https://www.instagram.com/kaskadclinica/",
+        "items_total": 3,
+        "posts_count": 3,
+        "reels_count": 0,
+        "posts_per_week": 3.5,
+        "media_mix": {
+          "Sidecar": 2,
+          "Video": 1
+        },
+        "likes_avg": 34.0,
+        "likes_median": 28.0,
+        "likes_p75": 28.0,
+        "likes_p90": 28.0,
+        "comments_avg": 0.0,
+        "views_avg": 476.0,
+        "views_median": 476.0,
+        "views_p75": 476.0,
+        "views_p90": 476.0,
+        "video_views_avg": 476.0,
+        "video_likes_avg": 20.0
+      },
+      "positioning": "",
+      "audience": [
+        "Болесные и здоровые люди, интересующиеся медицинскими услугами",
+        "Болесные люди, ищущие экспертов в области онкологии"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Клиника Каскад",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "Sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/kaskadclinica/"
+          ]
+        },
+        {
+          "pillar": "Специалисты Клиники Каскад",
+          "share_pct": 0,
+          "best_formats": [
+            "video",
+            "post"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/kaskadclinica/"
+          ]
+        }
+      ],
+      "performance_drivers": [],
+      "strengths": [
+        {
+          "pillar": "Уникальная комбинация онкологических и хирургических услуг",
+          "audience": "Болесные люди, ищущие экспертов в области онкологии"
+        },
+        {
+          "pillar": "Видеоматериалы и Sidecar-โพсти с высоким качеством",
+          "audience": "Болесные и здоровые люди, интересующиеся медицинскими услугами"
+        }
+      ],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "kravira.by",
+      "kpis": {
+        "profile": "kravira.by",
+        "profile_url": "https://www.instagram.com/kravira.by/",
+        "items_total": 7,
+        "posts_count": 7,
+        "reels_count": 0,
+        "posts_per_week": 2.88,
+        "media_mix": {
+          "Video": 6,
+          "Sidecar": 1
+        },
+        "likes_avg": 28.29,
+        "likes_median": 27.0,
+        "likes_p75": 34.0,
+        "likes_p90": 37.0,
+        "comments_avg": 0.57,
+        "views_avg": 1085.4,
+        "views_median": 1029.0,
+        "views_p75": 1127.0,
+        "views_p90": 1127.0,
+        "video_views_avg": 1085.4,
+        "video_likes_avg": 30.33
+      },
+      "positioning": "",
+      "audience": [
+        "Пациенты с проблемами с circulation и skin",
+        "Пациенты с проблемами с circulation и skin"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Контент-пиллер: «Записаться на консультацию»",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "Video"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DTsf0FVDOiX/"
+          ]
+        },
+        {
+          "pillar": "Уникальный номер для записи на консультацию",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        },
+        {
+          "pillar": "Скидка 15% на ЭВЛК за фиксированное время",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        }
+      ],
+      "performance_drivers": [
+        "Повышение занимаемой доли клиентов",
+        "Упрощение процесса записи на консультацию"
+      ],
+      "strengths": [
+        "Уникальный номер для записи на консультацию",
+        "Скидка 15% на ЭВЛК за фиксированное время"
+      ],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "lode.med",
+      "kpis": {
+        "profile": "lode.med",
+        "profile_url": "https://www.instagram.com/lode.med/",
+        "items_total": 2,
+        "posts_count": 2,
+        "reels_count": 0,
+        "posts_per_week": 1.75,
+        "media_mix": {
+          "Sidecar": 1,
+          "Video": 1
+        },
+        "likes_avg": 180.5,
+        "likes_median": 180.5,
+        "likes_p75": 100.0,
+        "likes_p90": 100.0,
+        "comments_avg": 2.5,
+        "views_avg": 14535.0,
+        "views_median": 14535.0,
+        "views_p75": 14535.0,
+        "views_p90": 14535.0,
+        "video_views_avg": 14535.0,
+        "video_likes_avg": 100.0
+      },
+      "positioning": "",
+      "audience": [
+        "Медицинские центры",
+        "Пациенты и родители"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Контент-пиллер: Результаты анализа",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "Sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DTkP6BZDE04/"
+          ]
+        },
+        {
+          "pillar": "Контент-пиллер: Обучение и информирование",
+          "share_pct": 0,
+          "best_formats": [
+            "video",
+            "post"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DTR5kfFDTH-/"
+          ]
+        },
+        {
+          "pillar": "Контент-пиллер: События и акции",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        }
+      ],
+      "performance_drivers": [],
+      "strengths": [
+        {
+          "strength": "Уникальный подход к анализу результатов",
+          "": "Соответствие цели предоставлять результаты анализа"
+        },
+        {
+          "strength": "Продвижение программ и услуг",
+          "": "Повышение осведомленности о здоровье"
+        }
+      ],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "mercimed.by",
+      "kpis": {
+        "profile": "mercimed.by",
+        "profile_url": "https://www.instagram.com/mercimed.by/",
+        "items_total": 4,
+        "posts_count": 4,
+        "reels_count": 0,
+        "posts_per_week": 1.47,
+        "media_mix": {
+          "Video": 2,
+          "Sidecar": 2
+        },
+        "likes_avg": 321.0,
+        "likes_median": 243.0,
+        "likes_p75": 371.0,
+        "likes_p90": 371.0,
+        "comments_avg": 39.0,
+        "views_avg": 5415.0,
+        "views_median": 5415.0,
+        "views_p75": 3510.0,
+        "views_p90": 3510.0,
+        "video_views_avg": 5415.0,
+        "video_likes_avg": 424.5
+      },
+      "positioning": "Клиника «Мерси» - медицинский центр с высоким уровнем экспертизы и качественных услуг",
+      "audience": [
+        "больные",
+        "их семьи",
+        "профессионалы medиков"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Уникальная комбинация методик и технологий для лечения различных заболеваний",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [],
+          "content": "Клиника «Мерси» предлагает широкий спектр медицинских услуг, включая офтальмологию, хирургию и другие специализированные области. Важно отметить, что клиника имеет высокий уровень экспертизы и качественных услуг, что делает ее привлекательным вариантом для пациентов и их семей."
+        },
+        {
+          "pillar": "Представлениеclinики",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [],
+          "content": "Клиника «Мерси» предлагает широкий спектр медицинских услуг, включая офтальмологию, хирургию и другие специализированные области. Важно отметить, что клиника имеет высокий уровень экспертизы и качественных услуг, что делает ее привлекательным вариантом для пациентов и их семей."
+        },
+        {
+          "pillar": "Сохранение здоровья семьи",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [],
+          "content": "Клиника «Мерси» предлагает широкий спектр медицинских услуг, включая офтальмологию, хирургию и другие специализированные области. Важно отметить, что клиника имеет высокий уровень экспертизы и качественных услуг, что делает ее привлекательным вариантом для пациентов и их семей."
+        }
+      ],
+      "performance_drivers": [
+        "likes",
+        "comments",
+        "views"
+      ],
+      "strengths": [],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "nordin.medcentr",
+      "kpis": {
+        "profile": "nordin.medcentr",
+        "profile_url": "https://www.instagram.com/nordin.medcentr/",
+        "items_total": 1,
+        "posts_count": 1,
+        "reels_count": 0,
+        "posts_per_week": 7.0,
+        "media_mix": {
+          "Video": 1
+        },
+        "likes_avg": 40.0,
+        "likes_median": 40.0,
+        "likes_p75": 40.0,
+        "likes_p90": 40.0,
+        "comments_avg": 3.0,
+        "views_avg": 433.0,
+        "views_median": 433.0,
+        "views_p75": 433.0,
+        "views_p90": 433.0,
+        "video_views_avg": 433.0,
+        "video_likes_avg": 40.0
+      },
+      "positioning": "",
+      "audience": [
+        "Болеющие и интересующиеся медицинскими технологиями"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Контент-пиллер: Пresentation of medical projects",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "reel"
+          ],
+          "evidence": "",
+          "example_urls": [],
+          "count_est": 1
+        },
+        {
+          "pillar": "Контент-пиллер: Информация о медицинском центре",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "reel"
+          ],
+          "evidence": "",
+          "example_urls": [],
+          "count_est": 1
+        }
+      ],
+      "performance_drivers": [],
+      "strengths": [
+        "Болеющие и интересующиеся медицинскими технологиями получают информацию о новых проектах в режиме реального времени"
+      ],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "proud_clinic",
+      "kpis": {
+        "profile": "proud_clinic",
+        "profile_url": "https://www.instagram.com/proud_clinic/",
+        "items_total": 12,
+        "posts_count": 12,
+        "reels_count": 0,
+        "posts_per_week": 3.82,
+        "media_mix": {
+          "Video": 8,
+          "Image": 1,
+          "Sidecar": 3
+        },
+        "likes_avg": 41.67,
+        "likes_median": 38.0,
+        "likes_p75": 48.0,
+        "likes_p90": 57.0,
+        "comments_avg": 9.5,
+        "views_avg": 3768.75,
+        "views_median": 4011.5,
+        "views_p75": 4077.0,
+        "views_p90": 5096.0,
+        "video_views_avg": 3768.75,
+        "video_likes_avg": 50.0
+      },
+      "positioning": "",
+      "audience": [
+        "Пациенты с проблемами с кожей и мышцами",
+        "Пациенты с проблемами с кожей"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Уникальное предложение",
+          "share_pct": 0,
+          "best_formats": [
+            "post",
+            "sidecar"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DT2XeUuDfg1/"
+          ]
+        },
+        {
+          "pillar": "Продвижение услуг",
+          "share_pct": 0,
+          "best_formats": [
+            "reel",
+            "post"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DTzd3dRjWwF/"
+          ]
+        }
+      ],
+      "performance_drivers": [],
+      "strengths": [],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "Улучшение информирования пациентов о услугах",
+          "hypothesis": "Пациенты будут более заинтересованы в комплексном обследовании организма, если получат точную и полную информацию о услугах",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        },
+        {
+          "priority": "P2",
+          "initiative": "Развитие уникального предложения",
+          "hypothesis": "Пациенты будут более заинтересованы в комплексном обследовании организма, если получат уникальное предложение с личным подходом",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        },
+        {
+          "priority": "P3",
+          "initiative": "Улучшение качества контента",
+          "hypothesis": "Пациенты будут более заинтересованы в комплексном обследовании организма, если получат качественный и информативный контент",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    },
+    {
+      "profile": "sante.by",
+      "kpis": {
+        "profile": "sante.by",
+        "profile_url": "https://www.instagram.com/sante.by/",
+        "items_total": 4,
+        "posts_count": 4,
+        "reels_count": 0,
+        "posts_per_week": 1.87,
+        "media_mix": {
+          "Image": 3,
+          "Video": 1
+        },
+        "likes_avg": "",
+        "likes_median": null,
+        "likes_p75": null,
+        "likes_p90": null,
+        "comments_avg": 1.5,
+        "views_avg": 1954.0,
+        "views_median": 1954.0,
+        "views_p75": 1954.0,
+        "views_p90": 1954.0,
+        "video_views_avg": 1954.0,
+        "video_likes_avg": ""
+      },
+      "positioning": "",
+      "audience": [
+        "мужчины",
+        "женщины",
+        "семьи",
+        "дети",
+        "старшие дети",
+        "клиенты"
+      ],
+      "content_pillars": [
+        {
+          "pillar": "Позиционирование на Instagram",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        },
+        {
+          "pillar": "Аудитория Instagram",
+          "share_pct": 0,
+          "best_formats": [
+            "reel",
+            "post"
+          ],
+          "evidence": "",
+          "example_urls": [
+            "https://www.instagram.com/p/DTPg6mFCCBK/"
+          ]
+        },
+        {
+          "pillar": "Сообщения на Instagram",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        },
+        {
+          "pillar": "CTA (запросы к действию) на Instagram",
+          "share_pct": 0,
+          "best_formats": [],
+          "evidence": "",
+          "example_urls": []
+        }
+      ],
+      "performance_drivers": [],
+      "strengths": [],
+      "gaps": [],
+      "action_plan_30d": [
+        {
+          "priority": "P1",
+          "initiative": "",
+          "hypothesis": "",
+          "test": "",
+          "success_metric": "",
+          "expected_impact": ""
+        }
+      ],
+      "notes": [],
+      "llm_error": ""
+    }
+  ]
+}
