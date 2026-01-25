@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sqlite3
+import statistics
 import time
 import urllib.error
 import urllib.parse
@@ -40,6 +41,10 @@ class Config:
     analysis_mode: str  # llm | none
     ollama_base_url: str
     ollama_model: str
+    llm_chunk_size: int
+    llm_max_posts_per_profile: int  # 0 = all
+    ollama_timeout_seconds: int
+    llm_polish: bool
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -345,6 +350,90 @@ def _to_int(x: Any) -> Optional[int]:
         return int(float(s))
     except ValueError:
         return None
+
+
+def _percentile(values: list[int], p: float) -> Optional[float]:
+    """
+    p in [0..100]. Simple nearest-rank percentile.
+    """
+    if not values:
+        return None
+    if p <= 0:
+        return float(min(values))
+    if p >= 100:
+        return float(max(values))
+    s = sorted(values)
+    k = int((p / 100.0) * (len(s) - 1))
+    return float(s[max(0, min(len(s) - 1, k))])
+
+
+def _median(values: list[int]) -> Optional[float]:
+    if not values:
+        return None
+    try:
+        return float(statistics.median(values))
+    except Exception:
+        return None
+
+
+def _chunked(items: list[Any], chunk_size: int) -> list[list[Any]]:
+    if chunk_size <= 0:
+        return [items]
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    """
+    Ollama иногда возвращает JSON с лишним текстом. Пытаемся вытащить объект.
+    """
+    c = (content or "").strip()
+    if not c:
+        return {}
+    try:
+        v = json.loads(c)
+        return v if isinstance(v, dict) else {"value": v}
+    except Exception:
+        pass
+
+    # try extract the first {...} block
+    start = c.find("{")
+    end = c.rfind("}")
+    if start >= 0 and end > start:
+        maybe = c[start : end + 1]
+        try:
+            v = json.loads(maybe)
+            return v if isinstance(v, dict) else {"value": v}
+        except Exception:
+            return {"raw": c}
+    return {"raw": c}
+
+
+def _as_text(x: Any) -> str:
+    if x is None:
+        return ""
+    if isinstance(x, str):
+        return x.strip()
+    if isinstance(x, (int, float, bool)):
+        return str(x)
+    if isinstance(x, dict):
+        # common keys
+        for k in ("text", "title", "name", "description", "evidence", "strength", "gap", "pattern", "initiative", "pillar"):
+            v = x.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return json.dumps(x, ensure_ascii=False)
+    return str(x).strip()
+
+
+def _join_list(items: Any, limit: int = 6) -> str:
+    if not items or not isinstance(items, list):
+        return ""
+    out: list[str] = []
+    for x in items[:limit]:
+        t = _as_text(x)
+        if t:
+            out.append(t)
+    return "; ".join(out)
 
 
 def load_targets(path: Path, default_start: Optional[date], default_end: Optional[date]) -> list[Target]:
@@ -669,6 +758,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         items_csv = cfg.output_dir / f"items_{tag}.csv"
         summary_csv = cfg.output_dir / f"summary_{tag}.csv"
         llm_json = cfg.output_dir / f"llm_insights_{tag}.json"
+        llm_benchmark_csv = cfg.output_dir / f"llm_benchmark_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -802,14 +892,19 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
 
         llm_for_report: dict[str, Any] = {}
         llm_json_for_report: Path | None = None
+        llm_benchmark_for_report: Path | None = None
         if cfg.analysis_mode == "llm":
             try:
-                llm_for_report = _build_llm_insights(
-                    rows=rows,
+                llm_for_report, bench_rows = _build_llm_insights(
+                    rows=rows,  # all posts in period
                     start_s=start_s,
                     end_s=end_s,
                     model=cfg.ollama_model,
                     base_url=cfg.ollama_base_url,
+                    chunk_size=cfg.llm_chunk_size,
+                    max_posts_per_profile=cfg.llm_max_posts_per_profile,
+                    timeout_seconds=cfg.ollama_timeout_seconds,
+                    polish=cfg.llm_polish,
                 )
             except Exception as e:
                 llm_for_report = {
@@ -820,8 +915,12 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
                     "profiles": [],
                     "error": str(e),
                 }
+                bench_rows = []
             llm_json.write_text(json.dumps(llm_for_report, ensure_ascii=False, indent=2), encoding="utf-8")
             llm_json_for_report = llm_json
+
+            _write_llm_benchmark_csv(llm_benchmark_csv, bench_rows)
+            llm_benchmark_for_report = llm_benchmark_csv
 
         _write_html_report(
             output_path=report_html,
@@ -830,6 +929,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             items_csv=items_csv,
             summary_csv=summary_csv,
             llm_json=llm_json_for_report,
+            llm_benchmark_csv=llm_benchmark_for_report,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
@@ -840,6 +940,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         outputs[f"summary_{tag}"] = summary_csv
         if llm_json_for_report and llm_json_for_report.exists():
             outputs[f"llm_insights_{tag}"] = llm_json_for_report
+        if llm_benchmark_for_report and llm_benchmark_for_report.exists():
+            outputs[f"llm_benchmark_{tag}"] = llm_benchmark_for_report
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -874,7 +976,11 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
     cards_html = []
     for rep in sorted(reports, key=lambda p: p.name, reverse=True):
         per = period_from(rep.name)
-        file_list = [p for p in files_by_period.get(per, []) if p.name.startswith(("items_", "summary_", "llm_insights_"))]
+        file_list = [
+            p
+            for p in files_by_period.get(per, [])
+            if p.name.startswith(("items_", "summary_", "llm_insights_", "llm_benchmark_"))
+        ]
 
         def sort_key(p: Path) -> tuple[int, str]:
             if p.name.startswith("summary_"):
@@ -883,6 +989,8 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
                 return (1, p.name)
             if p.name.startswith("llm_insights_"):
                 return (2, p.name)
+            if p.name.startswith("llm_benchmark_"):
+                return (3, p.name)
             return (9, p.name)
 
         file_list = sorted(file_list, key=sort_key)
@@ -1072,6 +1180,7 @@ def _write_html_report(
     items_csv: Path,
     summary_csv: Path,
     llm_json: Path | None,
+    llm_benchmark_csv: Path | None,
     summary_rows: list[list[Any]],
     top_likes: list[dict[str, Any]],
     top_views: list[dict[str, Any]],
@@ -1189,6 +1298,8 @@ def _write_html_report(
     rel_summary = esc(summary_csv.name)
     rel_llm_json = esc(llm_json.name) if llm_json else ""
     llm_link = f'<a class="pill" href="{rel_llm_json}">Скачать llm_insights JSON</a>' if llm_json else ""
+    rel_bench = esc(llm_benchmark_csv.name) if llm_benchmark_csv else ""
+    bench_link = f'<a class="pill" href="{rel_bench}">Скачать benchmark CSV</a>' if llm_benchmark_csv else ""
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -1274,6 +1385,7 @@ def _write_html_report(
       <div class="links">
         <a class="pill" href="{rel_items}">Скачать items CSV</a>
         <a class="pill" href="{rel_summary}">Скачать summary CSV</a>
+        {bench_link}
         {llm_link}
       </div>
     </div>
@@ -1354,24 +1466,106 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
             "</div>"
         )
 
+    benchmark = llm.get("benchmark") or {}
+    bench_rows = benchmark.get("rows") or []
+    bench_cols = benchmark.get("columns") or []
+
+    def bench_table() -> str:
+        if not bench_cols or not bench_rows:
+            return "<div class='muted'>Нет сравнительной таблицы</div>"
+        ths = "".join(f"<th>{esc(c)}</th>" for c in bench_cols)
+        trs = []
+        for r in bench_rows:
+            trs.append("<tr>" + "".join(f"<td>{esc(r.get(c,''))}</td>" for c in bench_cols) + "</tr>")
+        return "<div class='table-wrap'><table><thead><tr>" + ths + "</tr></thead><tbody>" + "".join(trs) + "</tbody></table></div>"
+
+    def bullets(items: Any) -> str:
+        if not items:
+            return "<div class='muted'>Нет</div>"
+        if isinstance(items, str):
+            return f"<div>{esc(items)}</div>"
+        if isinstance(items, list):
+            return "<ul>" + "".join(f"<li>{esc(_as_text(x))}</li>" for x in items) + "</ul>"
+        return f"<div>{esc(items)}</div>"
+
+    def pills(arr: Any) -> str:
+        if not arr or not isinstance(arr, list):
+            return ""
+        return "<div class='chips'>" + "".join(f"<span class='chip'>{esc(x)}</span>" for x in arr[:12]) + "</div>"
+
     blocks = []
     for p in llm.get("profiles", []) or []:
         prof = p.get("profile") or ""
-        recs = p.get("recommendations") or []
-        themes = p.get("themes") or []
+        positioning = p.get("positioning") or ""
+        audience = p.get("audience") or []
+        drivers = p.get("performance_drivers") or []
+        strengths = p.get("strengths") or []
+        gaps = p.get("gaps") or []
+        plan = p.get("action_plan_30d") or []
+        pillars = p.get("content_pillars") or []
+        kpis = p.get("kpis") or {}
 
-        def li(items):
-            if not items:
+        def kpi_line() -> str:
+            if not kpis:
+                return ""
+            return (
+                "<div class='muted'>"
+                f"Постов: <span class='mono'>{esc(kpis.get('items_total'))}</span>, "
+                f"reels: <span class='mono'>{esc(kpis.get('reels_count'))}</span>, "
+                f"likes avg: <span class='mono'>{esc(kpis.get('likes_avg'))}</span>, "
+                f"views avg*: <span class='mono'>{esc(kpis.get('views_avg'))}</span>"
+                "</div>"
+            )
+
+        def pillars_block() -> str:
+            if not pillars:
                 return "<div class='muted'>Нет</div>"
-            return "<ul>" + "".join(f"<li>{esc(x)}</li>" for x in items) + "</ul>"
+            lis = []
+            for it in pillars[:10]:
+                title = it.get("pillar") or ""
+                share = it.get("share_pct")
+                fmt = it.get("best_formats") or []
+                lis.append(
+                    "<li>"
+                    f"<b>{esc(title)}</b>"
+                    + (f" — {esc(share)}%" if share is not None else "")
+                    + (pills(fmt) if fmt else "")
+                    + "</li>"
+                )
+            return "<ul>" + "".join(lis) + "</ul>"
 
         blocks.append(
             f"""
             <details class="card" open>
               <summary class="card-title">LLM: {esc(prof)}</summary>
+              {kpi_line()}
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div>{li(themes)}</div>
-                <div class="card"><div class="card-title">Рекомендации</div>{li(recs)}</div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div>{esc(positioning)}</div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  {bullets(audience)}
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  {pillars_block()}
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  {bullets(drivers)}
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  {bullets(strengths)}
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  {bullets(gaps)}
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  {bullets([f"{x.get('priority','')} {x.get('initiative','')}: {x.get('hypothesis','')} | тест: {x.get('test','')} | метрика: {x.get('success_metric','')} | эффект: {x.get('expected_impact','')}" for x in plan] if isinstance(plan, list) else plan)}
+                </div>
               </div>
             </details>
             """
@@ -1379,10 +1573,13 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
 
     return (
         "<div class='card'>"
-        "<div class='card-title'>LLM анализ (только LLM)</div>"
+        "<div class='card-title'>LLM анализ (все посты, профессиональный бенчмарк)</div>"
         f"<div class='muted'>Модель: <code>{esc(model)}</code>. "
-        "Это генеративный анализ текстов постов + метрик. Результат сохраняется в <code>llm_insights_*.json</code>.</div>"
+        "LLM получает полный список постов за период (чанками) + KPI и собирает сравнительный бенчмарк центров.</div>"
         "</div>"
+        + "<div class='card'><div class='card-title'>Сравнительная таблица центров</div>"
+        + bench_table()
+        + "</div>"
         + "".join(blocks)
     )
 
@@ -1405,91 +1602,375 @@ def _ollama_chat_json(*, base_url: str, model: str, messages: list[dict[str, str
         raise RuntimeError(f"Ollama request failed: {e}") from e
 
 
-def _build_llm_insights(*, rows: list[tuple[Any, ...]], start_s: str, end_s: str, model: str, base_url: str) -> dict[str, Any]:
+def _ollama_json_call(
+    *,
+    base_url: str,
+    model: str,
+    system: str,
+    user_obj: dict[str, Any],
+    required_keys: list[str],
+    timeout: int,
+    retries: int = 1,
+) -> dict[str, Any]:
+    """
+    Делает вызов к Ollama и пытается получить JSON dict.
+    Если ответ невалидный или не содержит required_keys — повторяет с более жёсткой инструкцией.
+    """
+    sys = system
+    last: dict[str, Any] = {}
+    for attempt in range(retries + 1):
+        resp = _ollama_chat_json(
+            base_url=base_url,
+            model=model,
+            messages=[{"role": "system", "content": sys}, {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)}],
+            timeout=timeout,
+        )
+        content = ((resp.get("message") or {}).get("content") or "").strip()
+        parsed = _parse_llm_json(content)
+        if isinstance(parsed, dict) and all(k in parsed for k in required_keys):
+            return parsed
+        last = parsed if isinstance(parsed, dict) else {"value": parsed}
+        sys = (
+            system
+            + "\n\nВАЖНО: верни ТОЛЬКО JSON объект без Markdown/комментариев/текста вокруг. "
+            + "Проверь, что в JSON есть ключи: "
+            + ", ".join(required_keys)
+        )
+    return last
+
+
+def _write_llm_benchmark_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    cols = [
+        "profile",
+        "profile_url",
+        "items_total",
+        "posts_count",
+        "reels_count",
+        "posts_per_week",
+        "likes_avg",
+        "likes_median",
+        "likes_p75",
+        "comments_avg",
+        "views_avg",
+        "views_median",
+        "views_p75",
+        "positioning",
+        "top_pillars",
+        "strengths",
+        "gaps",
+        "priority_actions",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow({c: r.get(c, "") for c in cols})
+
+
+def _build_llm_insights(
+    *,
+    rows: list[tuple[Any, ...]],
+    start_s: str,
+    end_s: str,
+    model: str,
+    base_url: str,
+    chunk_size: int,
+    max_posts_per_profile: int,
+    timeout_seconds: int,
+    polish: bool,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Профессиональный LLM-анализ по ВСЕМ постам (чанками) + сравнительный бенчмарк.
+    Возвращает (llm_json_for_report, benchmark_rows_for_csv).
+    """
+    # group rows by profile_label
     by_profile: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
     for r in rows:
         by_profile[str(r[0] or "")].append(r)
 
-    out_profiles = []
+    profile_outputs: list[dict[str, Any]] = []
+    benchmark_rows: list[dict[str, Any]] = []
+
+    # per-profile analysis
     for profile, items in sorted(by_profile.items()):
-        def to_int(x):
-            try:
-                return int(x)
-            except Exception:
-                return None
+        # normalize items into dicts
+        posts = []
+        likes_vals: list[int] = []
+        comments_vals: list[int] = []
+        views_vals: list[int] = []
+        posts_count = 0
+        reels_count = 0
+        media_counts: dict[str, int] = defaultdict(int)
+        video_views: list[int] = []
+        video_likes: list[int] = []
+        ts_vals: list[str] = []
 
-        items_sorted_likes = sorted(items, key=lambda r: to_int(r[7]) or 0, reverse=True)
-        items_sorted_views = sorted(items, key=lambda r: to_int(r[9]) or 0, reverse=True)
-        items_sorted_time = sorted(items, key=lambda r: str(r[4] or ""), reverse=True)
+        for r in items:
+            # (profile_label, profile_url, content_kind, media_type, timestamp_utc, url, short_code, likes, comments, views, caption)
+            profile_url = str(r[1] or "")
+            kind = str(r[2] or "")
+            media_type = str(r[3] or "")
+            ts = str(r[4] or "")
+            url = str(r[5] or "")
+            likes = _to_int(r[7])
+            comments = _to_int(r[8])
+            views = _to_int(r[9])
+            # For LLM: keep captions short to fit context even with many posts.
+            caption = str(r[10] or "").replace("\n", " ").strip()
+            if len(caption) > 240:
+                caption = caption[:239] + "…"
 
-        sample = []
-        seen = set()
-        for src in (items_sorted_likes[:8], items_sorted_views[:8], items_sorted_time[:8]):
-            for r in src:
-                u = str(r[5] or "")
-                if u in seen:
-                    continue
-                seen.add(u)
-                caption = str(r[10] or "")
-                caption = caption.replace("\n", " ").strip()
-                if len(caption) > 400:
-                    caption = caption[:399] + "…"
-                sample.append(
-                    {
-                        "url": u,
-                        "timestamp_utc": str(r[4] or ""),
-                        "likes": to_int(r[7]),
-                        "views": to_int(r[9]),
-                        "caption": caption,
-                    }
-                )
-        sample = sample[:20]
+            if kind == "reel":
+                reels_count += 1
+            elif kind == "post":
+                posts_count += 1
 
-        system = (
-            "Ты маркетолог-аналитик Instagram. "
-            "Твоя задача: по выборке постов и метрикам предложить темы контента и рекомендации. "
-            "Отвечай строго JSON объектом формата: "
-            '{"themes":[...], "recommendations":[...], "notes":[...]}'
-        )
-        user = {
+            if likes is not None:
+                likes_vals.append(likes)
+            if comments is not None:
+                comments_vals.append(comments)
+            if views is not None:
+                views_vals.append(views)
+            if ts:
+                ts_vals.append(ts)
+
+            if media_type:
+                media_counts[media_type] = int(media_counts.get(media_type, 0)) + 1
+            if media_type.lower() == "video":
+                if views is not None:
+                    video_views.append(views)
+                if likes is not None:
+                    video_likes.append(likes)
+
+            posts.append(
+                {
+                    "timestamp_utc": ts,
+                    "url": url,
+                    "kind": kind,
+                    "media_type": media_type,
+                    "likes": likes,
+                    "comments": comments,
+                    "views": views,
+                    "caption": caption,
+                }
+            )
+
+        # sort posts by time desc (input already sorted, but keep deterministic)
+        posts = sorted(posts, key=lambda x: x.get("timestamp_utc") or "", reverse=True)
+        if max_posts_per_profile and max_posts_per_profile > 0:
+            posts = posts[: max_posts_per_profile]
+
+        days = 0
+        try:
+            if ts_vals:
+                tmax = _parse_iso_dt(max(ts_vals))
+                tmin = _parse_iso_dt(min(ts_vals))
+                days = max(1, int((tmax - tmin).total_seconds() // 86400) + 1)
+        except Exception:
+            days = 0
+
+        items_total = len(posts)
+        likes_avg = round((sum(likes_vals) / len(likes_vals)), 2) if likes_vals else ""
+        comments_avg = round((sum(comments_vals) / len(comments_vals)), 2) if comments_vals else ""
+        views_avg = round((sum(views_vals) / len(views_vals)), 2) if views_vals else ""
+
+        # top examples (give LLM evidence)
+        top_by_likes = sorted([p for p in posts if p.get("likes") is not None], key=lambda x: x.get("likes") or 0, reverse=True)[:5]
+        top_by_views = sorted([p for p in posts if p.get("views") is not None], key=lambda x: x.get("views") or 0, reverse=True)[:5]
+
+        kpis = {
             "profile": profile,
-            "period": f"{start_s}..{end_s} (UTC, end-exclusive)",
-            "posts_sample": sample,
-            "requirements": {
-                "themes": "список 5-10 тем (кратко, по-русски)",
-                "recommendations": "список 5-10 рекомендаций (кратко, по-русски)",
-                "notes": "1-3 оговорки про качество данных (например views есть не у всех)",
-            },
+            "profile_url": (str(items[0][1] or "") if items else ""),
+            "items_total": items_total,
+            "posts_count": posts_count,
+            "reels_count": reels_count,
+            "posts_per_week": (round(items_total / days * 7.0, 2) if days else ""),
+            "media_mix": dict(media_counts),
+            "likes_avg": likes_avg,
+            "likes_median": _median(likes_vals),
+            "likes_p75": _percentile(likes_vals, 75),
+            "likes_p90": _percentile(likes_vals, 90),
+            "comments_avg": comments_avg,
+            "views_avg": views_avg,
+            "views_median": _median(views_vals),
+            "views_p75": _percentile(views_vals, 75),
+            "views_p90": _percentile(views_vals, 90),
+            "video_views_avg": (round(sum(video_views) / len(video_views), 2) if video_views else ""),
+            "video_likes_avg": (round(sum(video_likes) / len(video_likes), 2) if video_likes else ""),
         }
 
-        resp = _ollama_chat_json(
-            base_url=base_url,
-            model=model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": json.dumps(user, ensure_ascii=False)}],
-            timeout=180,
-        )
-        content = ((resp.get("message") or {}).get("content") or "").strip()
+        # LLM pipeline (per-profile). Failures shouldn't kill the whole run.
         try:
-            parsed = json.loads(content)
-        except Exception:
-            parsed = {"themes": [], "recommendations": [], "notes": [content]}
+            chunks = _chunked(posts, max(5, int(chunk_size)))
+            chunk_summaries: list[dict[str, Any]] = []
+            for idx, ch in enumerate(chunks, start=1):
+                system = (
+                    "Ты маркетолог-аналитик Instagram (медицинские центры). "
+                    "Проанализируй контент-пиллары, позиционирование, аудиторию, CTA, "
+                    "и признаки того, что влияет на метрики. "
+                    "Пиши по-русски, профессионально и кратко. "
+                    "Запрещено: хэштеги (#...), упоминания (@...), английские слова/фразы (если это не название бренда). "
+                    "Отвечай СТРОГО JSON объектом вида: "
+                    '{"pillars":[{"pillar":"","intent":"","audience":"","count_est":0,"examples":["url1","url2"]}],'
+                    '"drivers":["..."],"gaps":["..."],"strengths":["..."],'
+                    '"cta_patterns":["..."],"compliance_risks":["..."],"notes":["..."]}'
+                )
+                user = {
+                    "profile": profile,
+                    "period": f"{start_s}..{end_s} (UTC, end-exclusive)",
+                    "chunk": {"index": idx, "of": len(chunks)},
+                    "posts": ch,
+                    "kpis_hint": kpis,
+                }
+                chunk_summaries.append(
+                    _ollama_json_call(
+                        base_url=base_url,
+                        model=model,
+                        system=system,
+                        user_obj=user,
+                        required_keys=["pillars", "drivers", "gaps", "strengths"],
+                        timeout=max(30, int(timeout_seconds)),
+                        retries=1,
+                    )
+                )
 
-        out_profiles.append(
+            system_final = (
+                "Ты маркетолог-аналитик. У тебя есть KPI профиля и чанковые выводы по всем постам. "
+                "Собери профессиональный итог: позиционирование, аудиторию, контент-пиллары (с долей), "
+                "драйверы метрик, сильные стороны, пробелы/риски, и план тестов на 30 дней (P1..P3). "
+                "Опирайся на KPI и примеры top-постов (URL) и формат (media_type). "
+                "Запрещено: хэштеги (#...), упоминания (@...), английские слова/фразы (если это не название бренда). "
+                "Отвечай строго JSON объектом вида: "
+                '{"positioning":"","audience":["..."],'
+                '"content_pillars":[{"pillar":"","share_pct":0,"best_formats":["reel","post"],"evidence":"","example_urls":["..."]}],'
+                '"performance_drivers":["..."],"strengths":["..."],"gaps":["..."],'
+                '"action_plan_30d":[{"priority":"P1","initiative":"","hypothesis":"","test":"","success_metric":"","expected_impact":""}]}'
+            )
+            user_final = {
+                "profile": profile,
+                "period": f"{start_s}..{end_s} (UTC, end-exclusive)",
+                "kpis": kpis,
+                "top_posts_by_likes": top_by_likes,
+                "top_posts_by_views": top_by_views,
+                "chunk_summaries": chunk_summaries,
+            }
+            parsed = _ollama_json_call(
+                base_url=base_url,
+                model=model,
+                system=system_final,
+                user_obj=user_final,
+                required_keys=["positioning", "content_pillars", "action_plan_30d", "strengths", "gaps"],
+                timeout=max(30, int(timeout_seconds)),
+                retries=1,
+            )
+
+            if polish:
+                system_polish = (
+                    "Ты редактор и стратег. Приведи результат к профессиональному русскому языку: "
+                    "убери англицизмы, хэштеги, @упоминания. Заполни пропуски разумно на основе входных данных. "
+                    "Сохрани структуру и ключи JSON 1-в-1."
+                )
+                parsed = _ollama_json_call(
+                    base_url=base_url,
+                    model=model,
+                    system=system_polish,
+                    user_obj={
+                        "profile": profile,
+                        "kpis": kpis,
+                        "top_posts_by_likes": top_by_likes,
+                        "top_posts_by_views": top_by_views,
+                        "draft": parsed,
+                    },
+                    required_keys=["positioning", "content_pillars", "action_plan_30d", "strengths", "gaps"],
+                    timeout=max(30, int(timeout_seconds)),
+                    retries=1,
+                )
+        except Exception as e:
+            parsed = {"positioning": "", "audience": [], "content_pillars": [], "performance_drivers": [], "strengths": [], "gaps": [], "action_plan_30d": [], "error": str(e)}
+
+        prof_out = {
+            "profile": profile,
+            "kpis": kpis,
+            "positioning": parsed.get("positioning") or "",
+            "audience": parsed.get("audience") or [],
+            "content_pillars": parsed.get("content_pillars") or [],
+            "performance_drivers": parsed.get("performance_drivers") or [],
+            "strengths": parsed.get("strengths") or [],
+            "gaps": parsed.get("gaps") or [],
+            "action_plan_30d": parsed.get("action_plan_30d") or [],
+            "notes": (parsed.get("notes") or []) + (["views есть не у всех постов"] if not views_vals else []),
+        }
+        profile_outputs.append(prof_out)
+
+        # benchmark row (for CSV)
+        top_pillars = ""
+        try:
+            cps = prof_out.get("content_pillars") or []
+            if isinstance(cps, list):
+                top_pillars = "; ".join([_as_text(x.get("pillar") if isinstance(x, dict) else x) for x in cps[:5] if _as_text(x.get("pillar") if isinstance(x, dict) else x)])
+        except Exception:
+            top_pillars = ""
+        gaps = _join_list(prof_out.get("gaps"), 6)
+        strengths = _join_list(prof_out.get("strengths"), 6)
+        actions = ""
+        try:
+            ap = prof_out.get("action_plan_30d") or []
+            if isinstance(ap, list):
+                parts: list[str] = []
+                for x in ap[:5]:
+                    if isinstance(x, dict):
+                        parts.append(f"{_as_text(x.get('priority'))}: {_as_text(x.get('initiative'))}".strip(": ").strip())
+                    else:
+                        parts.append(_as_text(x))
+                actions = "; ".join([p for p in parts if p])
+        except Exception:
+            actions = ""
+
+        benchmark_rows.append(
             {
                 "profile": profile,
-                "themes": parsed.get("themes") if isinstance(parsed, dict) else [],
-                "recommendations": parsed.get("recommendations") if isinstance(parsed, dict) else [],
-                "notes": parsed.get("notes") if isinstance(parsed, dict) else [],
+                "profile_url": kpis.get("profile_url", ""),
+                "items_total": kpis.get("items_total", ""),
+                "posts_count": kpis.get("posts_count", ""),
+                "reels_count": kpis.get("reels_count", ""),
+                "posts_per_week": kpis.get("posts_per_week", ""),
+                "likes_avg": kpis.get("likes_avg", ""),
+                "likes_median": kpis.get("likes_median", ""),
+                "likes_p75": kpis.get("likes_p75", ""),
+                "comments_avg": kpis.get("comments_avg", ""),
+                "views_avg": kpis.get("views_avg", ""),
+                "views_median": kpis.get("views_median", ""),
+                "views_p75": kpis.get("views_p75", ""),
+                "positioning": prof_out.get("positioning", ""),
+                "top_pillars": top_pillars,
+                "strengths": strengths,
+                "gaps": gaps,
+                "priority_actions": actions,
             }
         )
 
-    return {
+    # global benchmark in llm json (for HTML)
+    columns = [
+        "profile",
+        "items_total",
+        "posts_per_week",
+        "likes_avg",
+        "views_avg",
+        "positioning",
+        "top_pillars",
+        "priority_actions",
+    ]
+    bench_table_rows = [{c: r.get(c, "") for c in columns} for r in benchmark_rows]
+
+    out = {
         "provider": "ollama",
         "base_url": base_url,
         "model": model,
         "period": {"start": start_s, "end": end_s},
-        "profiles": out_profiles,
+        "benchmark": {"columns": columns, "rows": bench_table_rows},
+        "profiles": profile_outputs,
     }
+    return out, benchmark_rows
 
 
 def load_config_from_env(args: argparse.Namespace) -> Config:
@@ -1503,6 +1984,10 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     db_path = Path(os.environ.get("DB_PATH", "cache/instagram_apify.sqlite")).expanduser()
     ollama_base_url = (os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
     ollama_model = (os.environ.get("OLLAMA_MODEL") or "llama3.2:3b").strip()
+    llm_chunk_size = int(getattr(args, "llm_chunk_size", None) or (os.environ.get("LLM_CHUNK_SIZE") or 30))
+    llm_max_posts = int(getattr(args, "llm_max_posts", None) or (os.environ.get("LLM_MAX_POSTS_PER_PROFILE") or 0))
+    ollama_timeout = int(getattr(args, "ollama_timeout", None) or (os.environ.get("OLLAMA_TIMEOUT_SECONDS") or 180))
+    llm_polish = bool(getattr(args, "llm_polish", False) or (os.environ.get("LLM_POLISH") or "").strip().lower() in {"1", "true", "yes", "on"})
 
     refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
     if getattr(args, "update", False):
@@ -1525,6 +2010,10 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
         analysis_mode=analysis_mode,
         ollama_base_url=ollama_base_url,
         ollama_model=ollama_model,
+        llm_chunk_size=max(5, llm_chunk_size),
+        llm_max_posts_per_profile=max(0, llm_max_posts),
+        ollama_timeout_seconds=max(30, ollama_timeout),
+        llm_polish=llm_polish,
     )
 
 
@@ -1538,6 +2027,10 @@ def main() -> int:
     parser.add_argument("--refresh", default="auto", help="auto | always | never (по умолчанию auto)")
     parser.add_argument("--check-limit", dest="check_limit", type=int, default=1, help="Сколько последних постов брать для проверки новых (по умолчанию 1)")
     parser.add_argument("--analysis", default="llm", help="llm | none (по умолчанию llm)")
+    parser.add_argument("--llm-chunk-size", dest="llm_chunk_size", type=int, default=30, help="Сколько постов отправлять в LLM за 1 запрос (по умолчанию 30)")
+    parser.add_argument("--llm-max-posts", dest="llm_max_posts", type=int, default=0, help="Ограничение постов на профиль для LLM (0 = все)")
+    parser.add_argument("--ollama-timeout", dest="ollama_timeout", type=int, default=180, help="Таймаут одного запроса к Ollama (сек)")
+    parser.add_argument("--llm-polish", dest="llm_polish", action="store_true", help="Доп. проход редактора (может быть медленнее)")
     parser.add_argument(
         "--publish-dir",
         default=None,

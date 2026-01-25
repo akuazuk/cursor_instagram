@@ -82,6 +82,7 @@
       <div class="links">
         <a class="pill" href="items_2025-01-01_to_2026-02-01.csv">Скачать items CSV</a>
         <a class="pill" href="summary_2025-01-01_to_2026-02-01.csv">Скачать summary CSV</a>
+        <a class="pill" href="llm_benchmark_2025-01-01_to_2026-02-01.csv">Скачать benchmark CSV</a>
         <a class="pill" href="llm_insights_2025-01-01_to_2026-02-01.json">Скачать llm_insights JSON</a>
       </div>
     </div>
@@ -342,44 +343,169 @@
         </div>
         
 
-    <div class='card'><div class='card-title'>LLM анализ (только LLM)</div><div class='muted'>Модель: <code>llama3.2:3b</code>. Это генеративный анализ текстов постов + метрик. Результат сохраняется в <code>llm_insights_*.json</code>.</div></div>
+    <div class='card'><div class='card-title'>LLM анализ (все посты, профессиональный бенчмарк)</div><div class='muted'>Модель: <code>llama3.2:3b</code>. LLM получает полный список постов за период (чанками) + KPI и собирает сравнительный бенчмарк центров.</div></div><div class='card'><div class='card-title'>Сравнительная таблица центров</div><div class='table-wrap'><table><thead><tr><th>profile</th><th>items_total</th><th>posts_per_week</th><th>likes_avg</th><th>views_avg</th><th>positioning</th><th>top_pillars</th><th>priority_actions</th></tr></thead><tbody><tr><td>kaskad</td><td>105</td><td>1.93</td><td>216.29</td><td>13900.38</td><td></td><td>косметология; пластическая хирургия; сна и сLEEP; массаж</td><td>P1: развить контент по конкретным услугам и специалистам, добавление более детальной информации о клинике и ее преимуществах; P2: повысить engagement за счет использования инстаграм-стикеров и Story-адvertisingа; P3: разработать campaigns по продвижению услуг и специалистов Клиники Каскад</td></tr><tr><td>kravira</td><td>143</td><td>2.64</td><td>593.85</td><td>20094.9</td><td></td><td>информация о медицинских услугах и процедурах; обучение и консультации по здоровью; информация о healthy lifestyle; обучение и консультации по здоровью</td><td>P1</td></tr><tr><td>lode.med</td><td>43</td><td>0.85</td><td>453.79</td><td>18479.9</td><td></td><td>женское здоровье; репродуктивная медицина; онкология</td><td>P1: выявление и улучшение качества контента; P2: повышение engagement с помощью вопросов и вызовов; P3: развитие стратегии анализа и отслеживания аудитории</td></tr><tr><td>mercimed.by</td><td>71</td><td>1.33</td><td>317.92</td><td>34935.74</td><td></td><td>офтальмохирургия; нейрохирургия; гинекология; медицина в целом</td><td>P1: Расширить контент офтальмохирургии и нейрохирургии с использованием видеороликов и текстовых сообщений; P2: Добавление более дetaileddes contenta o specific treatments and procedures; P3: Использование Instagram Stories и IGTV для расширения контента и повышения engagement</td></tr><tr><td>nordin.medcentr</td><td>46</td><td>0.89</td><td>55.74</td><td>89320.08</td><td>Медицинский центр «Нордин» - лидер в области медицинской помощи в Бельгии</td><td>Здоровье и благополучие; Новости и информация</td><td>P1: Повышение осведомленности о здоровье; P2: Улучшение взаимодействия с пациентами; P3: Анализ аудитории</td></tr></tbody></table></div></div>
             <details class="card" open>
               <summary class="card-title">LLM: kaskad</summary>
+              <div class='muted'>Постов: <span class='mono'>105</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>216.29</span>, views avg*: <span class='mono'>13900.38</span></div>
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div><div class='muted'>Нет</div></div>
-                <div class="card"><div class="card-title">Рекомендации</div><div class='muted'>Нет</div></div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>детский санитарный фонд</li><li>пациенты с проблемами сLEEPа</li><li>мамы с детьми</li><li>мужчины и женщины в возрасте от 25 до 55 лет</li><li>людям, интересующимся косметологией</li><li>людям, интересующимся пластической хирургией</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>косметология</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>пластическая хирургия</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>сна и сLEEP</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>массаж</b> — 0%<div class='chips'><span class='chip'>image</span><span class='chip'>post</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>среднее количество лайков на публикации</li><li>среднее количество комментариев</li><li>среднее количество просмотров на публикацию</li><li>среднее количество просмотров на видеоролики</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <div>высокие показатели engagement, высокое качество контента, активная аудитория</div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <ul><li>недостаточное представление о конкретных услугах и специалистах</li><li>недостаточная информация о клинике и ее преимуществах</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 развить контент по конкретным услугам и специалистам, добавление более детальной информации о клинике и ее преимуществах:  | тест:  | метрика:  | эффект:</li><li>P2 повысить engagement за счет использования инстаграм-стикеров и Story-адvertisingа:  | тест:  | метрика:  | эффект:</li><li>P3 разработать campaigns по продвижению услуг и специалистов Клиники Каскад:  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
               </div>
             </details>
             
             <details class="card" open>
               <summary class="card-title">LLM: kravira</summary>
+              <div class='muted'>Постов: <span class='mono'>143</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>593.85</span>, views avg*: <span class='mono'>20094.9</span></div>
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div><ul><li>Советы по здоровью</li><li>Право на работу</li><li>Вакцинация</li><li>Диета</li><li>Здоровье и благополучие</li></ul></div>
-                <div class="card"><div class="card-title">Рекомендации</div><ul><li>Создать контент, фокусирующийся на здоровье и благополучии</li><li>Использовать hashtags #Кравира, #Здоровье, #Благополучие</li><li>Публиковать контент с использованием визуальных элементов, таких как изображения и видео</li><li>Создавать серии постов, посвященных конкретным темам, таким как &#x27;Советы по здоровью&#x27;</li><li>Использовать инстаграм-стикеры для облегчения чтения контента</li></ul></div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>пациенты с проблемами со здоровьем</li><li>мужчины и женщины в возрасте 25-50 лет</li><li>люди, интересующиеся здоровьем и wellness</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>информация о медицинских услугах и процедурах</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>обучение и консультации по здоровью</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>информация о healthy lifestyle</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>обучение и консультации по здоровью</b> — 0%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>среднее количество лайков на публикацию</li><li>среднее количество комментариев на публикацию</li><li>среднее количество просмотров на публикацию</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>информативный и профессиональный контент</li><li>активная аудитория</li><li>высокие показатели engagement</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <ul><li>недостаточное количество sidecar-ролиек</li><li>недостаточное количество комментариев</li><li>недостаточное количество просмотров на Sidecar-роликах</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 :  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
               </div>
             </details>
             
             <details class="card" open>
               <summary class="card-title">LLM: lode.med</summary>
+              <div class='muted'>Постов: <span class='mono'>43</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>453.79</span>, views avg*: <span class='mono'>18479.9</span></div>
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div><ul><li>Материнство и репродуктивная медицина</li><li>Здоровье и wellness</li><li>Новогодние праздники и график работы медцентра</li><li>Программа «Отложенное материнство»</li><li>Инновации в медицинской технологии</li></ul></div>
-                <div class="card"><div class="card-title">Рекомендации</div><ul><li>Продолжать использовать Instagram для продвижения программы «Отложенное материнство»</li><li>Использовать приложение LODE для оплаты визитов в медцентре</li><li>Улучшить график работы медцентра во время новогодних праздников</li><li>Распространять информацию о новой функции регистрации на прием в приложении LODE</li><li>Использовать hashtags #LODEmed и #maternost</li></ul></div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>мамы с детьми</li><li>женщины с проблемами с репродуктивной системой</li><li>жены с раком молочной железы</li><li>женщин в возрасте 35-38 лет</li><li>родителей с детьми</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>женское здоровье</b> — 0.5%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>репродуктивная медицина</b> — 0.4%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>онкология</b> — 0.2%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>просмотры видеороликов</li><li>просмотр публикаций</li><li>комментарии</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>высокие просмотры видеороликов</li><li>большие количества комментариев</li><li>активная аудитория</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <ul><li>низкиеいいксы в некоторых публикациях</li><li>неufficientные комментарии в некоторых публикациях</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 выявление и улучшение качества контента:  | тест:  | метрика:  | эффект:</li><li>P2 повышение engagement с помощью вопросов и вызовов:  | тест:  | метрика:  | эффект:</li><li>P3 развитие стратегии анализа и отслеживания аудитории:  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
               </div>
             </details>
             
             <details class="card" open>
               <summary class="card-title">LLM: mercimed.by</summary>
+              <div class='muted'>Постов: <span class='mono'>71</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>317.92</span>, views avg*: <span class='mono'>34935.74</span></div>
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div><ul><li>Офтальмохирургия</li><li>Гинекология</li><li>Нейрохирургия</li><li>Лазерная коррекция зрения</li><li>Миома матки</li></ul></div>
-                <div class="card"><div class="card-title">Рекомендации</div><ul><li>Записаться на консультацию к офтальмологам для сохранения зрения</li><li>Проведение диагностики и лечения в Клинике «Мерси»</li><li>Принятие поздравлений в комментариях на Instagram</li><li>Участие в розыгрыше лазерной коррекции зрения за 330 BYN</li><li>Записаться на прием в Клинику «Мерси» для медицинских услуг</li></ul></div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div></div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>пациенты с офтальмологическими проблемами</li><li>пациенты с нейрохирургическими проблемами</li><li>общество с интересом к медицинским услугам</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>офтальмохирургия</b> — 0.77%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>нейрохирургия</b> — 0.33%<div class='chips'><span class='chip'>sidecar</span><span class='chip'>post</span></div></li><li><b>гинекология</b> — 0.11%<div class='chips'><span class='chip'>video</span><span class='chip'>post</span></div></li><li><b>медицина в целом</b> — 0.01%</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>likes_avg</li><li>views_avg</li><li>comments_avg</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>активный аккаунт с новыми публикациями и комментариями каждую неделю</li><li>высокий уровень engagement</li><li>достаточно информации о медицинских услугах и процедурах</li><li>представлены эксперты в своей области</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <ul><li>не enough information about specific treatments and procedures</li><li>need more detailed content</li><li>less emphasis on patient testimonials</li><li>more use of Instagram Stories and IGTV</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 Расширить контент офтальмохирургии и нейрохирургии с использованием видеороликов и текстовых сообщений:  | тест:  | метрика:  | эффект:</li><li>P2 Добавление более дetaileddes contenta o specific treatments and procedures:  | тест:  | метрика:  | эффект:</li><li>P3 Использование Instagram Stories и IGTV для расширения контента и повышения engagement:  | тест:  | метрика:  | эффект:</li></ul>
+                </div>
               </div>
             </details>
             
             <details class="card" open>
               <summary class="card-title">LLM: nordin.medcentr</summary>
+              <div class='muted'>Постов: <span class='mono'>46</span>, reels: <span class='mono'>0</span>, likes avg: <span class='mono'>55.74</span>, views avg*: <span class='mono'>89320.08</span></div>
               <div class="grid" style="margin-top:12px">
-                <div class="card"><div class="card-title">Темы</div><div class='muted'>Нет</div></div>
-                <div class="card"><div class="card-title">Рекомендации</div><div class='muted'>Нет</div></div>
+                <div class="card">
+                  <div class="card-title">Позиционирование</div>
+                  <div>Медицинский центр «Нордин» - лидер в области медицинской помощи в Бельгии</div>
+                  <div class="card-title" style="margin-top:12px">Аудитория</div>
+                  <ul><li>Пациенты</li><li>Семьи и друзья</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Контент‑пиллары</div>
+                  <ul><li><b>Здоровье и благополучие</b> — 60%<div class='chips'><span class='chip'>post</span><span class='chip'>reel</span></div></li><li><b>Новости и информация</b> — 30%<div class='chips'><span class='chip'>post</span><span class='chip'>reel</span></div></li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Драйверы метрик</div>
+                  <ul><li>{&quot;metric&quot;: &quot;Likes&quot;, &quot;share_pct&quot;: 70}</li><li>{&quot;metric&quot;: &quot;Просмотры&quot;, &quot;share_pct&quot;: 80}</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Сильные стороны</div>
+                  <ul><li>Высококачественный контент</li><li>Активная аудитория</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">Пробелы/риски</div>
+                  <ul><li>Повышение осведомленности о здоровье</li><li>Улучшение взаимодействия с пациентами</li></ul>
+                </div>
+                <div class="card">
+                  <div class="card-title">План на 30 дней (тесты)</div>
+                  <ul><li>P1 Повышение осведомленности о здоровье: Повышение осведомленности о здоровье и благополучии аудитории | тест: Опубликовать серию постов с информативным контентом по темам, связанным с здоровьем и благополучием | метрика: Увеличение лайков на 20% за 30 дней | эффект: Повышение осведомленности о здоровье и благополучии аудитории</li><li>P2 Улучшение взаимодействия с пациентами: Улучшение взаимодействия с пациентами и их семьями и друзьями | тест: Опубликовать серию постов с личными историями пациентов и их опытом с медицинским центром «Нордин» | метрика: Увеличение комментариев на 15% за 30 дней | эффект: Улучшение взаимодействия с пациентами и их семьями и друзьями</li><li>P3 Анализ аудитории: Анализ аудитории и выявление приоритетов для будущих действий | тест: Проведение анализа аудитории с помощью Instagram Insights и определение приоритетов для будущих действий | метрика: Определение приоритетов для будущих действий | эффект: Анализ аудитории и выявление приоритетов для будущих действий</li></ul>
+                </div>
               </div>
             </details>
             
