@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Instagram reports</title>
+  <title>Все отчёты — Instagram, Mercimed, ЛОДЭ</title>
   <style>
     :root {
       --bg: #0b1220;
@@ -76,10 +76,10 @@
 </head>
 <body>
   <div class="wrap">
-    <h1 class="title">Instagram reports</h1>
+    <h1 class="title">Все отчёты</h1>
     <div class="sub">
-      Статический отчёт (GitHub Pages). Данные собраны через
-      <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
+      Instagram — через <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
+      Прайсы Mercimed и ЛОДЭ — через Apify Puppeteer. Всё на одной странице.
     </div>
 
     <div class="grid">
@@ -123,6 +123,17 @@
               <div class="muted">Услуги и операции, Apify Puppeteer (без LLM).</div>
             </div>
             
+            <div class="card">
+              <div class="card-top">
+                <div>
+                  <div class="card-title">ЛОДЭ (lode.by)</div>
+                  <div class="card-period">Услуги для взрослых</div>
+                </div>
+                <a class="btn" href="lode_report.html">Открыть отчёт</a>
+              </div>
+              <div class="muted">Прайс по разделам, Apify Puppeteer (без LLM).</div>
+            </div>
+            
     </div>
 
     <div class="howto">
@@ -131,7 +142,7 @@
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
       <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
-      <div class="sub" style="margin-top:10px">Если Ollama недоступен (только скрапинг + отчёт без LLM‑секции):</div>
+      <div class="sub" style="margin-top:10px">Без LLM (только скрапинг + отчёт):</div>
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
     </div>
   </div>
