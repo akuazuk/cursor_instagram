@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Прайс Mercimed — по специальностям</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111a2e;
+      --text: #e9eefc;
+      --muted: #9fb0d0;
+      --accent: #7aa2ff;
+      --border: rgba(255,255,255,0.08);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 28px;
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(122,162,255,0.12), transparent 50%), var(--bg);
+      color: var(--text); font-family: var(--font); line-height: 1.5;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    .header { margin-bottom: 28px; }
+    h1 { font-size: 1.85rem; margin: 0 0 8px 0; font-weight: 700; }
+    .subtitle { color: var(--muted); font-size: 0.95rem; margin: 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 20%), var(--card);
+      border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-bottom: 22px;
+    }
+    .card-title { font-size: 1.15rem; margin: 0 0 14px 0; font-weight: 600; color: var(--text); }
+    .table-wrap { overflow-x: auto; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 11px 14px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+    .muted { color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .anal-table { margin-bottom: 28px; }
+    .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="header">
+      <h1>Прайс Mercimed.by</h1>
+      <p class="subtitle">Услуги и операции по специальностям. Источник: <a href="https://mercimed.by/uslugi/khirurgiya/ (+ещё)" target="_blank" rel="noopener">https://mercimed.by/uslugi/khirurgiya/ (+ещё)</a>. Собрано через Apify Puppeteer Scraper (без LLM).</p>
+    </header>
+
+    <section class="card anal-table">
+      <h2 class="card-title">Анализ по специальностям</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Специальность</th><th class="num">Всего</th><th class="num">С ценой</th><th class="num">Мин, руб</th><th class="num">Макс, руб</th><th class="num">Средняя, руб</th></tr></thead>
+          <tbody><tr><td>ortopediya</td><td class='num'>3</td><td class='num'>3</td><td class='num'>25.0</td><td class='num'>50.0</td><td class='num'>39.48</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    
+        <section class="card">
+          <h2 class="card-title">ortopediya</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Услуга / операция</th><th class="num">Цена, руб</th></tr></thead>
+              <tbody>
+                <tr><td>Консультация врача-травматолога-ортопеда</td><td class='num'>43.44</td></tr><tr><td>Перевязка (в т.ч снятие швов) для пациентов оперирующихся в ООО Клиника Мерси</td><td class='num'>25.0</td></tr><tr><td>Выполнение параартикулярной блокады (без стоимости лекарственного средства)</td><td class='num'>50.0</td></tr>
+              </tbody>
+            </table>
+          </div>
+          
+        </section>
+
+    <footer class="footer">
+      Данные взяты с сайта mercimed.by в ознакомительных целях. Актуальность уточняйте на сайте или по телефону клиники.
+    </footer>
+  </div>
+</body>
+</html>

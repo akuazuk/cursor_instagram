@@ -1,112 +1,142 @@
-# Instagram: Apify‑скрапер (мульти‑профили + период + кэш + LLM‑only анализ)
+# Instagram: Apify‑скрапер + LLM‑анализ
 
-Этот проект **использует Apify** ([`apify/instagram-scraper`](https://apify.com/apify/instagram-scraper)) и умеет:
+Скрапит несколько Instagram‑профилей через [apify/instagram-scraper](https://apify.com/apify/instagram-scraper), кэширует в SQLite, строит сводки и при желании запускает LLM‑анализ (OpenAI‑совместимый API).
 
-- скрапить **несколько Instagram профилей** из `targets.txt` (или `targets.csv`)
-- скрапить **за нужный период** (`start`..`end`, end-exclusive)
-- **проверять, появились ли новые публикации** и только тогда обновлять (режим `--refresh auto`)
-- обновлять метрики (лайки/комменты/просмотры) при перескрапе
-- делать **анализ текстов и рекомендации только через LLM** (Ollama локально)
-- собрать **общую таблицу** со всеми постами + **сводку по аккаунтам**
+---
 
-## Что нужно
+## Как пользоваться
 
-- Apify аккаунт и `APIFY_TOKEN`
-- Заполнить `.env` (см. `.env.example`)
-
-## LLM‑анализ (через OpenAI‑совместимый API)
-
-Если хотите, чтобы рекомендации делала **только LLM** (без правил/эвристик), укажите ключ и модель в `.env`:
-
-- `LLM_API_KEY` (или `OPENAI_API_KEY`)
-- `LLM_MODEL` (например `gpt-4o-mini`)
-- опционально `LLM_BASE_URL` (по умолчанию `https://api.openai.com/v1`)
-
-Запуск скрапера с LLM‑анализом:
-
-```bash
-./.venv/bin/python ig_apify_scrape.py --analysis llm --publish-dir docs
-```
-
-LLM‑результат сохраняется в `output/llm_insights_<period>.json` и добавляется в HTML‑отчёт.
-
-Если LLM недоступна или ключ не задан, можно собрать только скрапинг + отчёт без LLM‑секции:
-
-```bash
-./.venv/bin/python ig_apify_scrape.py --analysis none --publish-dir docs
-```
-
-## Файл целей (проще всего) — `targets.txt`
-
-- По одной ссылке на профиль в строке.
-- Период задаётся один раз через `.env` (или флаги запуска).
-
-Пример уже лежит в `targets.txt`.
-
-## Альтернатива — `targets.csv`
-
-Если нужно хранить разные периоды/лейблы в одном файле: `profile_url,label,start,end`.
-
-## Запуск
-
-1) Установить зависимости:
+### 1. Установка
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-2) Создать `.env`:
+### 2. Настройка
+
+Создай `.env` из примера и заполни обязательные поля:
 
 ```bash
 cp .env.example .env
 ```
 
-Заполнить `APIFY_TOKEN`.
+В `.env` обязательно:
 
-Период можно задать в `.env`:
-- `START_DATE` / `END_DATE` (end-exclusive)
-- или `PERIOD=this-month|last-month|last-30d`
+- **`APIFY_TOKEN`** — токен с [Apify](https://console.apify.com/account/integrations).
 
-3) Запустить скрап:
+Для LLM‑анализа (опционально):
 
-```bash
-python3 ig_apify_scrape.py
-```
+- **`LLM_API_KEY`** или **`OPENAI_API_KEY`**
+- **`LLM_MODEL`** (например `gpt-4o-mini`)
+- при необходимости **`LLM_BASE_URL`** (по умолчанию `https://api.openai.com/v1`)
 
-После выполнения появятся CSV:
-- `output/items_<start>_to_<end>.csv` — все посты/рилсы всех аккаунтов за период
-- `output/summary_<start>_to_<end>.csv` — сводка по аккаунтам за период
-- `output/llm_insights_<start>_to_<end>.json` — LLM‑анализ (темы + рекомендации)
-И HTML отчёт (локальная веб‑страница):
-- `output/report_<start>_to_<end>.html` — удобочитаемый отчёт с таблицами и графиками + ссылками на CSV/JSON
+Период можно задать в `.env`: `START_DATE`, `END_DATE` или `PERIOD=this-month|last-month|last-30d`.
 
-## Публикация отчёта “через интернет” (GitHub Pages)
+### 3. Цели скрапинга
 
-1) Сгенерировать и положить отчёт в `docs/`:
+Профили берутся из **`targets.txt`** (по одной ссылке на строку) или из **`targets.csv`** (колонки `profile_url`, `label`, `start`, `end`). Примеры уже лежат в репозитории.
+
+### 4. Запуск
+
+**Только скрапинг** (без LLM, только таблицы и отчёт):
 
 ```bash
-./.venv/bin/python ig_apify_scrape.py --publish-dir docs --analysis llm
+python ig_apify_scrape.py
 ```
 
-2) На GitHub включить Pages: Settings → Pages → **Deploy from a branch** → Branch: `master`, Folder: `/docs`.
-После этого отчёт будет доступен по ссылке GitHub Pages (вкладка Pages покажет URL).
+**Скрапинг + LLM‑анализ** (рекомендации, темы, сравнение с baseline):
 
-3) Автообновление (опционально): добавь GitHub Action workflow.
+```bash
+python ig_apify_scrape.py --analysis llm
+```
 
-- Скопируй файл `workflow_template_scrape_and_publish.yml` в `.github/workflows/scrape_and_publish.yml` (в репозитории).
-- Добавь секрет `APIFY_TOKEN` в Settings → Secrets and variables → Actions → New repository secret.
-- Дальше можно запускать workflow вручную (Actions) или ждать расписания.
+**Результат в папку `output/`:**
 
-## Кэш / “уже скрапил”
+- `items_<start>_to_<end>.csv` — все посты/рилсы
+- `summary_<start>_to_<end>.csv` — сводка по аккаунтам
+- `report_<start>_to_<end>.html` — отчёт в браузере
+- при `--analysis llm`: `llm_insights_*.json`, benchmark CSV и т.п.
 
-Состояние хранится в SQLite (`DB_PATH`, по умолчанию `cache/instagram_apify.sqlite`).
+### 5. Публикация отчёта (например, в GitHub Pages)
 
-- По умолчанию включён режим `--refresh auto`: если **новых постов нет**, профиль пропускается (экономит деньги в Apify).
-- Если новые посты появились — профиль перескрапится “за весь период” и метрики обновятся (upsert в SQLite).
-- Принудительно:
-  - `--refresh always` (всегда перескрапить)
-  - `--refresh never` (никогда не перескрапить, только один раз)
+Сгенерировать отчёт в `docs/` и обновить индекс:
 
-Схема input actor: `https://apify.com/apify/instagram-scraper/input-schema`
+```bash
+python ig_apify_scrape.py --publish-dir docs --analysis llm
+```
+
+На GitHub: **Settings → Pages → Source**: branch `master`, папка `/docs`.  
+Для автообновления: скопировать `workflow_template_scrape_and_publish.yml` в `.github/workflows/scrape_and_publish.yml` и добавить секреты `APIFY_TOKEN` и при необходимости `OPENAI_API_KEY`.
+
+---
+
+## Полезные флаги
+
+| Флаг | Значение |
+|------|----------|
+| `--analysis llm` | Включить LLM‑анализ (нужен ключ в `.env`) |
+| `--analysis none` | Только скрапинг, без LLM |
+| `--refresh auto` | Перескрапывать только при появлении новых постов (по умолчанию) |
+| `--refresh always` | Всегда перескрапывать |
+| `--refresh never` | Использовать только кэш |
+| `--start` / `--end` | Период в формате `YYYY-MM-DD` |
+| `--period this-month` | Удобные периоды: `this-month`, `last-month`, `last-30d` |
+| `--publish-dir docs` | Складывать отчёт и CSV/JSON в указанную папку |
+
+---
+
+## Кэш
+
+Состояние хранится в SQLite (`DB_PATH`, по умолчанию `cache/instagram_apify.sqlite`). При `--refresh auto` повторный скрап по профилю не делается, если новых постов нет.
+
+---
+
+## Схема Apify
+
+Input actor: https://apify.com/apify/instagram-scraper/input-schema
+
+---
+
+## Прайс Mercimed (услуги и цены по специальностям)
+
+Отдельный скрипт **`mercimed_prices_scraper.py`** собирает названия операций/услуг и их стоимость с mercimed.by по разделам `/uslugi/...`, строит таблицу по специальностям и анализ (количество, мин/макс/средняя/медиана цены).
+
+**Зависимости:** `requests`, `beautifulsoup4` (уже в `requirements.txt`).
+
+**Запуск по URL** (обход в глубину по ссылкам `/uslugi/...`):
+
+```bash
+python mercimed_prices_scraper.py --url "https://mercimed.by/uslugi/khirurgiya/" -o output
+```
+
+**Результат в `output/`:**
+- `mercimed_prices_by_specialty.csv` — таблица: специальность, название услуги, цена (руб)
+- `mercimed_analysis_by_specialty.csv` — по каждой специальности: число услуг, с ценой, мин/макс/средняя/медиана цены
+
+**Если сайт отдаёт «Секундочку…» и контент подгружается по JS**, можно сохранить страницу вручную и разобрать из файла:
+
+1. Открой в браузере, например: https://mercimed.by/uslugi/khirurgiya/
+2. «Сохранить как» → «Веб-страница, полностью»
+3. Запуск:
+
+```bash
+python mercimed_prices_scraper.py --from-html путь/к/khirurgiya.html --specialty khirurgiya -o output
+```
+
+Имя специальности можно не указывать — тогда берётся из имени файла (без расширения).
+
+**Скрапинг через Apify (Puppeteer, без LLM):**
+
+```bash
+python mercimed_apify_scraper.py --url "https://mercimed.by/uslugi/khirurgiya/" -o output/mercimed_report.html
+```
+
+Результат — один HTML-файл с таблицей «Анализ по специальностям» и таблицами по каждой специальности. Нужен `APIFY_TOKEN` в `.env`.
+
+- **Обход всех подстраниц** в разделе (хирургия и её подразделы): не указывать `--no-crawl`, увеличить ожидание, например  
+  `--wait 600 --max-pages 30`.
+- **Несколько URL за один запуск** (без перехода по ссылкам):  
+  `--url "https://mercimed.by/uslugi/khirurgiya/,https://mercimed.by/uslugi/napravleniya/ortopediya/" --no-crawl`.
+- Главная страница «Хирургия» — по сути меню; цены обычно на подстраницах (гинекологические операции, ортопедия и т.п.), поэтому имеет смысл либо обход с `--no-crawl` выключенным, либо явный список подстраниц через `--url url1,url2,... --no-crawl`.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import html
 import json
 import os
@@ -1185,7 +1184,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
       <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
-      <div class="sub" style="margin-top:10px">Если Ollama недоступен (только скрапинг + отчёт без LLM‑секции):</div>
+      <div class="sub" style="margin-top:10px">Если LLM недоступна или ключ не задан (только скрапинг + отчёт без LLM‑секции):</div>
       <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
     </div>
   </div>
@@ -1537,7 +1536,7 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
         return (
             "<div class='card'>"
             "<div class='card-title'>LLM анализ</div>"
-            "<div class='muted'>LLM‑анализ не сгенерирован. Запусти скрипт с <code>--analysis llm</code> и локальным Ollama.</div>"
+            "<div class='muted'>LLM‑анализ не сгенерирован. Запусти скрипт с <code>--analysis llm</code> и задай LLM_API_KEY (или OPENAI_API_KEY) в .env.</div>"
             "</div>"
         )
 
@@ -1550,7 +1549,7 @@ def _llm_section_html(llm: dict[str, Any]) -> str:
         return (
             "<div class='card'>"
             "<div class='card-title'>LLM анализ (только LLM)</div>"
-            f"<div class='muted'>Не удалось получить LLM‑анализ через Ollama. Ошибка: <code>{esc(error)}</code>.</div>"
+            f"<div class='muted'>Не удалось получить LLM‑анализ. Ошибка: <code>{esc(error)}</code>.</div>"
             f"<div class='muted' style='margin-top:8px'>Модель: <code>{esc(model)}</code>.</div>"
             "</div>"
         )
