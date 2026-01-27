@@ -40,20 +40,15 @@ class Config:
     refresh_mode: str  # auto | always | never
     check_limit: int
     analysis_mode: str  # llm | none
-    ollama_base_url: str
-    ollama_model: str
+    llm_provider: str  # openai (OpenAI-compatible)
+    llm_base_url: str
+    llm_api_key: str
+    llm_model: str
     llm_chunk_size: int
     llm_max_posts_per_profile: int  # 0 = all
-    ollama_timeout_seconds: int
+    llm_timeout_seconds: int
     llm_polish: bool
     baseline_profile: str
-    vectara_base_url: str
-    vectara_customer_id: str
-    vectara_api_key: str
-    vectara_corpus_key: str
-    vectara_enabled: bool
-    vectara_index: bool
-    vectara_theme_limit: int
     apify_poll_interval_seconds: float = 2.0
     apify_wait_timeout_seconds: int = 900
 
@@ -143,19 +138,10 @@ def _init_db(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS vectara_index_cache (
-            item_key TEXT PRIMARY KEY,
-            vectara_doc_id TEXT NOT NULL,
-            profile_label TEXT,
-            profile_url TEXT,
-            indexed_at_utc TEXT NOT NULL
-        )
-        """
+        "SELECT 1"
     )
     _ensure_columns(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_profile_ts ON items(profile_url, timestamp_utc)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_vectara_doc_id ON vectara_index_cache(vectara_doc_id)")
     conn.commit()
 
 
@@ -405,7 +391,7 @@ def _chunked(items: list[Any], chunk_size: int) -> list[list[Any]]:
 
 def _parse_llm_json(content: str) -> dict[str, Any]:
     """
-    Ollama иногда возвращает JSON с лишним текстом. Пытаемся вытащить объект.
+    LLM иногда возвращает JSON с лишним текстом. Пытаемся вытащить объект.
     """
     c = (content or "").strip()
     if not c:
@@ -782,7 +768,7 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         llm_benchmark_csv = cfg.output_dir / f"llm_benchmark_{tag}.csv"
         vs_json = cfg.output_dir / f"llm_vs_{cfg.baseline_profile}_{tag}.json"
         vs_csv = cfg.output_dir / f"benchmark_vs_{cfg.baseline_profile}_{tag}.csv"
-        vectara_themes_csv = cfg.output_dir / f"vectara_themes_{tag}.csv"
+        themes_csv = cfg.output_dir / f"themes_{tag}.csv"
         report_html = cfg.output_dir / f"report_{tag}.html"
 
         period_targets = [t for t in targets if t.start.isoformat() == start_s and t.end.isoformat() == end_s]
@@ -799,14 +785,6 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             """,
             (*profile_urls, f"{start_s}T00:00:00+00:00", f"{end_s}T00:00:00+00:00"),
         ).fetchall()
-
-        # Optional: index posts into Vectara for semantic queries.
-        vectara_index_info: dict[str, Any] = {}
-        if _vectara_is_enabled(cfg):
-            try:
-                vectara_index_info = _vectara_sync_index(conn=conn, cfg=cfg, rows=rows, timeout=30, sleep_seconds=0.05)
-            except Exception as e:
-                vectara_index_info = {"enabled": True, "error": str(e), "indexed": 0, "skipped": 0}
 
         with items_csv.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
@@ -928,26 +906,25 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
         vs_json_for_report: Path | None = None
         vs_csv_for_report: Path | None = None
         vs_for_report: dict[str, Any] = {}
-        vectara_themes_for_report: Path | None = None
-        vectara_themes_for_html: dict[str, Any] = {}
+        themes_for_report: Path | None = None
+        themes_for_html: dict[str, Any] = {}
         if cfg.analysis_mode == "llm":
             try:
                 llm_for_report, bench_rows = _build_llm_insights(
                     rows=rows,  # all posts in period
                     start_s=start_s,
                     end_s=end_s,
-                    model=cfg.ollama_model,
-                    base_url=cfg.ollama_base_url,
+                    cfg=cfg,
                     chunk_size=cfg.llm_chunk_size,
                     max_posts_per_profile=cfg.llm_max_posts_per_profile,
-                    timeout_seconds=cfg.ollama_timeout_seconds,
+                    timeout_seconds=cfg.llm_timeout_seconds,
                     polish=cfg.llm_polish,
                 )
             except Exception as e:
                 llm_for_report = {
-                    "provider": "ollama",
-                    "base_url": cfg.ollama_base_url,
-                    "model": cfg.ollama_model,
+                    "provider": cfg.llm_provider,
+                    "base_url": cfg.llm_base_url,
+                    "model": cfg.llm_model,
                     "period": {"start": start_s, "end": end_s},
                     "profiles": [],
                     "error": str(e),
@@ -962,9 +939,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             # Baseline comparison (vs Kravira by default)
             try:
                 vs_payload, vs_rows = _build_vs_baseline(
-                    base_url=cfg.ollama_base_url,
-                    model=cfg.ollama_model,
-                    timeout_seconds=cfg.ollama_timeout_seconds,
+                    cfg=cfg,
+                    timeout_seconds=cfg.llm_timeout_seconds,
                     baseline=cfg.baseline_profile,
                     bench_rows=bench_rows,
                     all_rows=rows,
@@ -983,24 +959,14 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
                 vs_json_for_report = vs_json
                 vs_for_report = vs_payload
 
-        # Vectara theme benchmark (works even if LLM disabled)
-        if _vectara_is_enabled(cfg):
-            try:
-                baseline_label = _pick_baseline_from_rows(rows, cfg.baseline_profile)
-                vectara_themes_for_html = _vectara_theme_benchmark(
-                    cfg=cfg,
-                    baseline_profile=baseline_label,
-                    limit=int(cfg.vectara_theme_limit),
-                )
-                _write_vectara_themes_csv(vectara_themes_csv, vectara_themes_for_html)
-                vectara_themes_for_report = vectara_themes_csv
-            except Exception as e:
-                vectara_themes_for_html = {"error": str(e), "baseline": cfg.baseline_profile}
-        elif cfg.vectara_enabled:
-            vectara_themes_for_html = {
-                "error": "Vectara включена, но не заданы env: VECTARA_CUSTOMER_ID, VECTARA_CORPUS_KEY, VECTARA_API_KEY",
-                "baseline": cfg.baseline_profile,
-            }
+        # Local theme benchmark (works even if LLM disabled)
+        try:
+            baseline_label = _pick_baseline_from_rows(rows, cfg.baseline_profile)
+            themes_for_html = _local_theme_benchmark(rows=rows, baseline_profile=baseline_label, limit=40)
+            _write_themes_csv(themes_csv, themes_for_html)
+            themes_for_report = themes_csv
+        except Exception as e:
+            themes_for_html = {"error": str(e), "baseline": cfg.baseline_profile}
 
         _write_html_report(
             output_path=report_html,
@@ -1013,9 +979,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             vs_json=vs_json_for_report,
             vs_csv=vs_csv_for_report,
             vs_for_report=vs_for_report,
-            vectara_themes_csv=vectara_themes_for_report,
-            vectara_themes=vectara_themes_for_html,
-            vectara_index_info=vectara_index_info,
+            themes_csv=themes_for_report,
+            themes=themes_for_html,
             summary_rows=summary_rows,
             top_likes=_top_items(conn, profile_urls, start_s, end_s, order_by="likes_count", limit=10),
             top_views=_top_items(conn, profile_urls, start_s, end_s, order_by="views_count", limit=10),
@@ -1032,8 +997,8 @@ def export_period_outputs(cfg: Config, conn: sqlite3.Connection, targets: list[T
             outputs[f"llm_vs_{tag}"] = vs_json_for_report
         if vs_csv_for_report and vs_csv_for_report.exists():
             outputs[f"benchmark_vs_{tag}"] = vs_csv_for_report
-        if vectara_themes_for_report and vectara_themes_for_report.exists():
-            outputs[f"vectara_themes_{tag}"] = vectara_themes_for_report
+        if themes_for_report and themes_for_report.exists():
+            outputs[f"themes_{tag}"] = themes_for_report
         outputs[f"report_{tag}"] = report_html
 
     return outputs
@@ -1079,7 +1044,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
                     "llm_benchmark_",
                     "llm_vs_",
                     "benchmark_vs_",
-                    "vectara_themes_",
+                    "themes_",
                 )
             )
         ]
@@ -1097,7 +1062,7 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
                 return (4, p.name)
             if p.name.startswith("llm_vs_"):
                 return (5, p.name)
-            if p.name.startswith("vectara_themes_"):
+            if p.name.startswith("themes_"):
                 return (6, p.name)
             return (9, p.name)
 
@@ -1296,9 +1261,8 @@ def _write_html_report(
     vs_json: Path | None,
     vs_csv: Path | None,
     vs_for_report: dict[str, Any],
-    vectara_themes_csv: Path | None,
-    vectara_themes: dict[str, Any],
-    vectara_index_info: dict[str, Any],
+    themes_csv: Path | None,
+    themes: dict[str, Any],
 ) -> None:
     def esc(s: Any) -> str:
         return html.escape("" if s is None else str(s))
@@ -1418,8 +1382,8 @@ def _write_html_report(
     rel_vs_csv = esc(vs_csv.name) if vs_csv else ""
     vs_json_link = f'<a class="pill" href="{rel_vs_json}">Скачать сравнение vs {esc((vs_for_report or {}).get("baseline") or "baseline")} (JSON)</a>' if vs_json else ""
     vs_csv_link = f'<a class="pill" href="{rel_vs_csv}">Скачать сравнение vs {esc((vs_for_report or {}).get("baseline") or "baseline")} (CSV)</a>' if vs_csv else ""
-    rel_vectara = esc(vectara_themes_csv.name) if vectara_themes_csv else ""
-    vectara_link = f'<a class="pill" href="{rel_vectara}">Скачать Vectara темы (CSV)</a>' if vectara_themes_csv else ""
+    rel_themes = esc(themes_csv.name) if themes_csv else ""
+    themes_link = f'<a class="pill" href="{rel_themes}">Скачать темы (CSV)</a>' if themes_csv else ""
 
     doc = f"""<!doctype html>
 <html lang="ru">
@@ -1508,7 +1472,7 @@ def _write_html_report(
         {bench_link}
         {vs_csv_link}
         {vs_json_link}
-        {vectara_link}
+        {themes_link}
         {llm_link}
       </div>
     </div>
@@ -1555,7 +1519,7 @@ def _write_html_report(
 
     {_llm_section_html(llm_for_report)}
     {_vs_baseline_section_html(vs_for_report)}
-    {_vectara_themes_section_html(vectara_themes, vectara_index_info)}
+    {_themes_section_html(themes)}
 
     <div class="footer">
       Источник данных: Apify actor <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
@@ -1789,38 +1753,37 @@ def _vs_baseline_section_html(vs: dict[str, Any]) -> str:
     )
 
 
-def _vectara_themes_section_html(vectara_themes: dict[str, Any], vectara_index_info: dict[str, Any]) -> str:
+def _themes_section_html(themes: dict[str, Any]) -> str:
     def esc(s: Any) -> str:
         return html.escape("" if s is None else str(s))
 
-    if not vectara_themes:
+    if not themes:
         return (
             "<div class='card'>"
-            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
-            "<div class='muted'>Vectara не включена или нет данных.</div>"
+            "<div class='card-title'>Темы: бенчмарк</div>"
+            "<div class='muted'>Нет данных по темам.</div>"
             "</div>"
         )
 
-    err = vectara_themes.get("error")
+    err = themes.get("error")
     if err:
         return (
             "<div class='card'>"
-            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
+            "<div class='card-title'>Темы: бенчмарк</div>"
             f"<div class='muted'>Ошибка: <code>{esc(err)}</code></div>"
             "</div>"
         )
 
-    cols = vectara_themes.get("columns") or []
-    rows = vectara_themes.get("rows") or []
+    cols = themes.get("columns") or []
+    rows = themes.get("rows") or []
     if not isinstance(cols, list) or not isinstance(rows, list) or not cols:
         return (
             "<div class='card'>"
-            "<div class='card-title'>Vectara: тематический бенчмарк</div>"
+            "<div class='card-title'>Темы: бенчмарк</div>"
             "<div class='muted'>Нет данных.</div>"
             "</div>"
         )
 
-    # render a curated subset (human-readable)
     show_cols = [
         ("theme", "тема"),
         ("leader_profile", "лидер"),
@@ -1856,17 +1819,6 @@ def _vectara_themes_section_html(vectara_themes: dict[str, Any], vectara_index_i
                 tds.append(f"<td>{esc(r.get(key,''))}</td>")
         trs.append("<tr>" + "".join(tds) + "</tr>")
 
-    idx_info = ""
-    if isinstance(vectara_index_info, dict) and vectara_index_info:
-        if vectara_index_info.get("error"):
-            idx_info = f"<div class='muted'>Индексация: ошибка <code>{esc(vectara_index_info.get('error'))}</code></div>"
-        else:
-            idx_info = (
-                "<div class='muted'>"
-                f"Индексация: indexed={esc(vectara_index_info.get('indexed',''))}, skipped={esc(vectara_index_info.get('skipped',''))}"
-                "</div>"
-            )
-
     table_html = (
         "<div class='table-wrap'><table><thead><tr>"
         + ths
@@ -1876,39 +1828,56 @@ def _vectara_themes_section_html(vectara_themes: dict[str, Any], vectara_index_i
     )
     return (
         "<div class='card'>"
-        "<div class='card-title'>Vectara: тематический бенчмарк (семантический поиск)</div>"
-        "<div class='muted'>Для каждой темы Vectara выбирает релевантные посты и показывает, у кого медианные метрики выше. Это помогает понять, где конкуренты сильнее именно по формату/смыслам.</div>"
-        + idx_info
-        + "</div>"
+        "<div class='card-title'>Темы: бенчмарк (локально, без семантического поиска)</div>"
+        "<div class='muted'>Темы извлекаются по частотным словам из подписей (капшенов). Это проще семантики, но хорошо показывает, где у кого медианные метрики выше по повторяющимся мотивам.</div>"
+        "</div>"
         + "<div class='card'><div class='card-title'>Таблица по темам</div>"
         + table_html
         + "</div>"
     )
 
 
-def _ollama_chat_json(*, base_url: str, model: str, messages: list[dict[str, str]], timeout: int = 120) -> dict[str, Any]:
-    url = base_url.rstrip("/") + "/api/chat"
-    body = {
+def _openai_chat_json(*, base_url: str, api_key: str, model: str, messages: list[dict[str, str]], timeout: int = 120) -> dict[str, Any]:
+    """
+    OpenAI-compatible Chat Completions call.
+    base_url should be like: https://api.openai.com/v1
+    """
+    if not api_key:
+        raise RuntimeError("LLM API key is not configured (set LLM_API_KEY or OPENAI_API_KEY in .env).")
+    url = base_url.rstrip("/") + "/chat/completions"
+    body: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.2},
+        "temperature": 0.2,
     }
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url=url, data=data, method="POST", headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url=url,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        raise RuntimeError(f"LLM HTTPError {e.code}: {raw[:500]}") from e
     except Exception as e:
-        raise RuntimeError(f"Ollama request failed: {e}") from e
+        raise RuntimeError(f"LLM request failed: {e}") from e
 
 
-def _ollama_json_call(
+def _llm_json_call(
     *,
-    base_url: str,
-    model: str,
+    cfg: Config,
     system: str,
     user_obj: dict[str, Any],
     required_keys: list[str],
@@ -1916,19 +1885,24 @@ def _ollama_json_call(
     retries: int = 1,
 ) -> dict[str, Any]:
     """
-    Делает вызов к Ollama и пытается получить JSON dict.
+    Делает вызов к LLM (OpenAI-compatible) и пытается получить JSON dict.
     Если ответ невалидный или не содержит required_keys — повторяет с более жёсткой инструкцией.
     """
     sys = system
     last: dict[str, Any] = {}
     for attempt in range(retries + 1):
-        resp = _ollama_chat_json(
-            base_url=base_url,
-            model=model,
-            messages=[{"role": "system", "content": sys}, {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)}],
+        resp = _openai_chat_json(
+            base_url=cfg.llm_base_url,
+            api_key=cfg.llm_api_key,
+            model=cfg.llm_model,
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)},
+            ],
             timeout=timeout,
         )
-        content = ((resp.get("message") or {}).get("content") or "").strip()
+        choice0 = ((resp.get("choices") or [{}])[0] or {})
+        content = (((choice0.get("message") or {}).get("content")) or "").strip()
         parsed = _parse_llm_json(content)
         if isinstance(parsed, dict) and all(k in parsed for k in required_keys):
             return parsed
@@ -1945,359 +1919,132 @@ def _ollama_json_call(
     )
 
 
-def _vectara_is_enabled(cfg: Config) -> bool:
-    return bool(cfg.vectara_enabled and cfg.vectara_customer_id and cfg.vectara_corpus_key and cfg.vectara_api_key)
-
-
-def _vectara_headers(cfg: Config) -> dict[str, str]:
-    # Personal API key auth:
-    # - customer-id: your customer id
-    # - x-api-key: personal or service key
-    return {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "customer-id": str(cfg.vectara_customer_id),
-        "x-api-key": str(cfg.vectara_api_key),
-    }
-
-
-def _vectara_doc_id(item_key: str) -> str:
-    # Stable unique id per IG item.
-    h = hashlib.sha1(item_key.encode("utf-8")).hexdigest()  # 40 chars
-    return f"ig_{h}"
-
-
-def _vectara_post_json(*, url: str, body: dict[str, Any], headers: dict[str, str], timeout: int = 30) -> dict[str, Any]:
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url=url, data=data, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        raw = ""
-        try:
-            raw = e.read().decode("utf-8")
-        except Exception:
-            raw = ""
-        # Do NOT include any credentials in error messages.
-        raise RuntimeError(f"Vectara HTTPError {e.code}: {raw[:500]}") from e
-    except Exception as e:
-        raise RuntimeError(f"Vectara request failed: {e}") from e
-
-
-def _vectara_get_json(*, url: str, headers: dict[str, str], timeout: int = 30) -> dict[str, Any]:
-    req = urllib.request.Request(url=url, method="GET", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        raw = ""
-        try:
-            raw = e.read().decode("utf-8")
-        except Exception:
-            raw = ""
-        raise RuntimeError(f"Vectara HTTPError {e.code}: {raw[:500]}") from e
-    except Exception as e:
-        raise RuntimeError(f"Vectara request failed: {e}") from e
-
-
-def _vectara_index_one(
-    *,
-    cfg: Config,
-    doc_id: str,
-    text: str,
-    context: str,
-    metadata: dict[str, Any],
-    timeout: int = 30,
-) -> None:
-    """
-    Index one IG post into Vectara corpus as a core document with 1 part.
-
-    We try a couple of request shapes for compatibility with potential API changes.
-    """
-    base = cfg.vectara_base_url.rstrip("/")
-    url = f"{base}/v2/corpora/{urllib.parse.quote(cfg.vectara_corpus_key)}/documents"
-    headers = _vectara_headers(cfg)
-
-    doc = {
-        "id": doc_id,
-        "metadata": metadata,
-        "document_parts": [
-            {
-                "text": text or "",
-                "context": context or "",
-                "metadata": metadata,
-            }
-        ],
-    }
-
-    attempts: list[dict[str, Any]] = [
-        {"type": "core", **doc},
-        {"type": "core", "document": doc},
-        {"type": "core", "core_document": doc},
-    ]
-    last_err: Optional[Exception] = None
-    for body in attempts:
-        try:
-            _vectara_post_json(url=url, body=body, headers=headers, timeout=timeout)
-            return
-        except Exception as e:
-            last_err = e
-            # ALREADY_EXISTS or conflict should be treated as success for idempotency
-            msg = str(e)
-            if "409" in msg or "ALREADY_EXISTS" in msg or "already exists" in msg.lower():
-                return
-    raise RuntimeError(f"Vectara indexing failed: {last_err}")
-
-
-def _vectara_sync_index(
-    *,
-    conn: sqlite3.Connection,
-    cfg: Config,
-    rows: list[tuple[Any, ...]],
-    timeout: int = 30,
-    sleep_seconds: float = 0.05,
-) -> dict[str, Any]:
-    """
-    Incrementally index posts in `rows` into Vectara.
-    Uses `vectara_index_cache` to avoid re-indexing.
-    """
-    if not _vectara_is_enabled(cfg):
-        return {"enabled": False, "reason": "vectara not configured", "indexed": 0, "skipped": 0}
-    if not cfg.vectara_index:
-        return {"enabled": True, "reason": "vectara indexing disabled", "indexed": 0, "skipped": 0}
-
-    # rows tuples: (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
-    item_keys: list[str] = []
-    for r in rows:
-        key = str(r[5] or "").strip() or str(r[6] or "").strip()
-        if key:
-            item_keys.append(key)
-    item_keys = list(dict.fromkeys(item_keys))  # preserve order, unique
-
-    existing: set[str] = set()
-    if item_keys:
-        # SQLite has a limit on the number of host parameters. Keep it safe.
-        chunk_size = 800
-        for chunk in _chunked(item_keys, chunk_size):
-            q = f"SELECT item_key FROM vectara_index_cache WHERE item_key IN ({','.join(['?'] * len(chunk))})"
-            for (k,) in conn.execute(q, chunk).fetchall():
-                existing.add(str(k))
-
-    indexed = 0
-    skipped = 0
-    now = _utc_now().isoformat()
-    for r in rows:
-        profile_label = str(r[0] or "")
-        profile_url = str(r[1] or "")
-        kind = str(r[2] or "")
-        media_type = str(r[3] or "")
-        ts = str(r[4] or "")
-        url = str(r[5] or "").strip()
-        short_code = str(r[6] or "").strip()
-        likes = _to_int(r[7])
-        comments = _to_int(r[8])
-        views = _to_int(r[9])
-        caption = str(r[10] or "").replace("\n", " ").strip()
-        if len(caption) > 800:
-            caption = caption[:799] + "…"
-
-        item_key = url or short_code
-        if not item_key:
-            skipped += 1
-            continue
-        if item_key in existing:
-            skipped += 1
-            continue
-
-        doc_id = _vectara_doc_id(item_key)
-        md = {
-            "profile": profile_label,
-            "profile_url": profile_url,
-            "url": url or "",
-            "short_code": short_code or "",
-            "timestamp_utc": ts,
-            "kind": kind,
-            "media_type": media_type,
-            "likes": (None if likes is None or likes < 0 else likes),
-            "comments": (None if comments is None or comments < 0 else comments),
-            "views": (None if views is None or views < 0 else views),
-            "source": "instagram",
-        }
-        context = f"{profile_label} {kind} {media_type} {ts} {url}"
-        # Always include profile in text to enable filtering-less retrieval.
-        text = f"[{profile_label}] {caption}".strip()
-
-        _vectara_index_one(cfg=cfg, doc_id=doc_id, text=text, context=context, metadata=md, timeout=timeout)
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO vectara_index_cache(item_key, vectara_doc_id, profile_label, profile_url, indexed_at_utc)
-            VALUES(?, ?, ?, ?, ?)
-            """,
-            (item_key, doc_id, profile_label, profile_url, now),
-        )
-        conn.commit()
-        indexed += 1
-        if sleep_seconds:
-            time.sleep(sleep_seconds)
-
-    return {"enabled": True, "indexed": indexed, "skipped": skipped}
-
-
-def _vectara_meta_to_dict(v: Any) -> dict[str, Any]:
-    if v is None:
-        return {}
-    if isinstance(v, dict):
-        return v
-    if isinstance(v, list):
-        out: dict[str, Any] = {}
-        for it in v:
-            if not isinstance(it, dict):
-                continue
-            k = it.get("name") or it.get("key") or it.get("field") or it.get("type")
-            if not k:
-                continue
-            if "value" in it:
-                out[str(k)] = it.get("value")
-            elif "values" in it:
-                out[str(k)] = it.get("values")
-            else:
-                # last resort: keep the dict
-                out[str(k)] = it
-        return out
-    return {}
-
-
-def _vectara_extract_results(resp: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Normalize Vectara query response to a list of:
-    {text, score, doc_id, part_metadata, document_metadata}
-    """
-    if not isinstance(resp, dict):
+def _tokenize_caption(text: str) -> list[str]:
+    t = (text or "").lower()
+    t = re.sub(r"https?://\\S+", " ", t)
+    t = re.sub(r"@[\\w.]+", " ", t)
+    t = re.sub(r"#[\\w_]+", " ", t)
+    t = re.sub(r"[^\\w\\s-]", " ", t, flags=re.UNICODE)
+    t = re.sub(r"\\s+", " ", t).strip()
+    if not t:
         return []
-
-    # Try a few common shapes
-    candidates = []
-    for path in [
-        ("search_results",),
-        ("results",),
-        ("response", "results"),
-        ("response", "search_results"),
-        ("result", "results"),
-        ("result", "search_results"),
-    ]:
-        cur: Any = resp
-        ok = True
-        for p in path:
-            if not isinstance(cur, dict) or p not in cur:
-                ok = False
-                break
-            cur = cur[p]
-        if ok and isinstance(cur, list):
-            candidates = cur
-            break
-
+    parts = [p.strip("-_") for p in t.split(" ") if p.strip("-_")]
+    # tiny RU/EN stopwords set (intentionally small, no external deps)
+    stop = {
+        "и",
+        "в",
+        "во",
+        "на",
+        "с",
+        "со",
+        "к",
+        "ко",
+        "у",
+        "о",
+        "об",
+        "про",
+        "по",
+        "за",
+        "для",
+        "из",
+        "от",
+        "это",
+        "как",
+        "что",
+        "мы",
+        "вы",
+        "они",
+        "он",
+        "она",
+        "оно",
+        "а",
+        "но",
+        "или",
+        "the",
+        "and",
+        "or",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "is",
+        "are",
+    }
     out = []
-    for r in candidates:
-        if not isinstance(r, dict):
+    for p in parts:
+        if len(p) < 3:
             continue
-        text = r.get("result_text") or r.get("text") or r.get("snippet") or ""
-        score = r.get("score")
-        doc_id = r.get("document_id") or r.get("doc_id") or r.get("id") or ""
-        part_md = _vectara_meta_to_dict(r.get("part_metadata") or r.get("metadata"))
-        doc_md = _vectara_meta_to_dict(r.get("document_metadata") or r.get("doc_metadata"))
-        out.append({"text": text, "score": score, "doc_id": doc_id, "part_metadata": part_md, "document_metadata": doc_md, "raw": r})
+        if p.isdigit():
+            continue
+        if p in stop:
+            continue
+        out.append(p)
     return out
 
 
-def _vectara_query_simple(*, cfg: Config, query: str, limit: int = 20, timeout: int = 30) -> list[dict[str, Any]]:
+def _local_theme_benchmark(*, rows: list[tuple[Any, ...]], baseline_profile: str, limit: int = 40) -> dict[str, Any]:
     """
-    Use the simple single-corpus endpoint (GET).
-    Параметр запроса: `query` (см. GET /v2/corpora/:corpus_key/query).
+    Local (no external services) theme benchmark:
+    - themes are frequent tokens from captions
+    - for each token we compare median views/likes by profile
     """
-    if not _vectara_is_enabled(cfg):
-        return []
-    base = cfg.vectara_base_url.rstrip("/")
-    corpus = urllib.parse.quote(cfg.vectara_corpus_key)
-    headers = _vectara_headers(cfg)
+    # rows tuples: (profile_label, profile_url, kind, media_type, timestamp_utc, url, shortCode, likes, comments, views, caption)
+    per_profile_posts: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    token_df: dict[str, set[str]] = defaultdict(set)  # token -> set(profiles where it appears)
+    token_tf: dict[str, int] = defaultdict(int)
 
-    def call(params: dict[str, Any]) -> dict[str, Any]:
-        qs = urllib.parse.urlencode(params)
-        url = f"{base}/v2/corpora/{corpus}/query?{qs}"
-        return _vectara_get_json(url=url, headers=headers, timeout=timeout)
+    for r in rows:
+        prof = str(r[0] or "").strip()
+        url = str(r[5] or "").strip()
+        short_code = str(r[6] or "").strip()
+        likes = _to_int(r[7])
+        views = _to_int(r[9])
+        caption = str(r[10] or "").strip()
+        item_url = url or (f"https://www.instagram.com/p/{short_code}/" if short_code else "")
 
-    resp = call({"query": query, "limit": int(limit)})
-    return _vectara_extract_results(resp)
+        toks = _tokenize_caption(caption)
+        if not toks or not prof:
+            continue
+        uniq = set(toks)
+        for t in uniq:
+            token_df[t].add(prof)
+        for t in toks:
+            token_tf[t] += 1
+        per_profile_posts[prof].append({"url": item_url, "likes": likes, "views": views, "tokens": uniq})
 
-
-def _vectara_theme_benchmark(
-    *,
-    cfg: Config,
-    baseline_profile: str,
-    limit: int,
-) -> dict[str, Any]:
-    """
-    Semantic theme benchmark across all indexed posts.
-    Returns dict with columns + rows for HTML/CSV.
-    """
-    themes = [
-        {"theme": "Отзывы / доверие", "query": "отзыв пациента результат лечения впечатления благодарность"},
-        {"theme": "Врач / экспертность", "query": "врач отвечает консультация экспертное мнение рекомендации"},
-        {"theme": "Разбор случая", "query": "клинический случай разбор история пациента диагноз лечение"},
-        {"theme": "Процедура: как проходит", "query": "как проходит процедура подготовка этапы реабилитация"},
-        {"theme": "Цены / прозрачность", "query": "стоимость цена сколько стоит акция скидка рассрочка"},
-        {"theme": "Оборудование / технологии", "query": "оборудование аппарат технология современное лечение"},
-        {"theme": "Команда / закулисье", "query": "команда врачи клиника день из жизни закулисье"},
-        {"theme": "Профилактика / полезное", "query": "профилактика советы симптомы когда обращаться"},
+    # pick candidate themes that appear in >=2 profiles (avoid personal jargon) and with enough frequency
+    candidates = [
+        t
+        for t, profs in token_df.items()
+        if len(profs) >= 2 and token_tf.get(t, 0) >= 3 and len(t) <= 24
     ]
+    candidates = sorted(candidates, key=lambda t: (len(token_df[t]), token_tf[t]), reverse=True)[: max(10, int(limit))]
 
-    rows: list[dict[str, Any]] = []
-    for t in themes:
-        q = t["query"]
-        results = _vectara_query_simple(cfg=cfg, query=q, limit=limit)
-        # group by profile (from metadata)
-        by_prof: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for r in results:
-            md = (r.get("document_metadata") or {}) | (r.get("part_metadata") or {})
-            prof = str(md.get("profile") or "").strip()
-            url = str(md.get("url") or "").strip()
-            likes = _to_int(md.get("likes"))
-            views = _to_int(md.get("views"))
-            if likes is not None and likes < 0:
-                likes = None
-            if views is not None and views < 0:
-                views = None
-            if not prof:
-                # fallback: try to infer profile from bracketed prefix in text
-                txt = str(r.get("text") or "")
-                m = re.match(r"\\[(.*?)\\]\\s+", txt)
-                if m:
-                    prof = m.group(1).strip()
-            if not prof:
-                continue
-            by_prof[prof].append({"url": url, "likes": likes, "views": views})
+    def median(vals: list[int]) -> Optional[float]:
+        v = [x for x in vals if x is not None and x >= 0]
+        return float(statistics.median(v)) if v else None
 
-        def median(vals: list[int]) -> Optional[float]:
-            v = [x for x in vals if x is not None]
-            return float(statistics.median(v)) if v else None
-
+    out_rows: list[dict[str, Any]] = []
+    for theme in candidates:
         stats: list[dict[str, Any]] = []
-        for prof, items in by_prof.items():
-            likes_vals = [x.get("likes") for x in items if x.get("likes") is not None]
-            views_vals = [x.get("views") for x in items if x.get("views") is not None]
+        for prof, items in per_profile_posts.items():
+            matched = [it for it in items if theme in (it.get("tokens") or set())]
+            if not matched:
+                continue
+            likes_vals = [it.get("likes") for it in matched]
+            views_vals = [it.get("views") for it in matched]
             stats.append(
                 {
                     "profile": prof,
-                    "n": len(items),
+                    "n": len(matched),
                     "likes_median": median(likes_vals),
                     "views_median": median(views_vals),
-                    "examples": [x.get("url") for x in sorted(items, key=lambda z: (z.get("views") or 0, z.get("likes") or 0), reverse=True) if x.get("url")][:3],
+                    "examples": [it.get("url") for it in sorted(matched, key=lambda z: (z.get("views") or 0, z.get("likes") or 0), reverse=True) if it.get("url")][:3],
                 }
             )
 
-        # select leader by views_median, fallback likes_median
         stats_sorted = sorted(
             stats,
             key=lambda x: (
@@ -2309,10 +2056,9 @@ def _vectara_theme_benchmark(
         )
         leader = stats_sorted[0] if stats_sorted else {}
         baseline = next((s for s in stats if s.get("profile") == baseline_profile), {})
-
-        rows.append(
+        out_rows.append(
             {
-                "theme": t["theme"],
+                "theme": theme,
                 "leader_profile": leader.get("profile", ""),
                 "leader_n": leader.get("n", ""),
                 "leader_views_median": leader.get("views_median", ""),
@@ -2337,10 +2083,10 @@ def _vectara_theme_benchmark(
         "baseline_likes_median",
         "leader_examples",
     ]
-    return {"columns": columns, "rows": rows}
+    return {"columns": columns, "rows": out_rows}
 
 
-def _write_vectara_themes_csv(path: Path, bench: dict[str, Any]) -> None:
+def _write_themes_csv(path: Path, bench: dict[str, Any]) -> None:
     cols = bench.get("columns") or []
     rows = bench.get("rows") or []
     if not cols or not isinstance(cols, list):
@@ -2519,8 +2265,7 @@ def _pick_baseline_from_rows(rows: list[tuple[Any, ...]], baseline: str) -> str:
 
 def _build_vs_baseline(
     *,
-    base_url: str,
-    model: str,
+    cfg: Config,
     timeout_seconds: int,
     baseline: str,
     bench_rows: list[dict[str, Any]],
@@ -2648,9 +2393,8 @@ def _build_vs_baseline(
             )
             continue
         try:
-            comp_json = _ollama_json_call(
-                base_url=base_url,
-                model=model,
+            comp_json = _llm_json_call(
+                cfg=cfg,
                 system=system_comp,
                 user_obj=user_comp,
                 required_keys=["competitor", "where_competitor_better", "recommendations_for_baseline"],
@@ -2704,9 +2448,8 @@ def _build_vs_baseline(
         '{"baseline_30d_plan":[{"priority":"P1","initiative":"","hypothesis":"","test":"","success_metric":"","expected_impact":""}],"global_takeaways":["..."]}'
     )
     try:
-        plan_json = _ollama_json_call(
-            base_url=base_url,
-            model=model,
+        plan_json = _llm_json_call(
+            cfg=cfg,
             system=system_plan,
             user_obj={"baseline": baseline_profile, "comparisons": comparisons},
             required_keys=["baseline_30d_plan", "global_takeaways"],
@@ -2754,8 +2497,7 @@ def _build_llm_insights(
     rows: list[tuple[Any, ...]],
     start_s: str,
     end_s: str,
-    model: str,
-    base_url: str,
+    cfg: Config,
     chunk_size: int,
     max_posts_per_profile: int,
     timeout_seconds: int,
@@ -2913,9 +2655,8 @@ def _build_llm_insights(
                     "kpis_hint": kpis,
                 }
                 chunk_summaries.append(
-                    _ollama_json_call(
-                        base_url=base_url,
-                        model=model,
+                    _llm_json_call(
+                        cfg=cfg,
                         system=system,
                         user_obj=user,
                         required_keys=["pillars", "drivers", "gaps", "strengths"],
@@ -2946,9 +2687,8 @@ def _build_llm_insights(
                 "top_posts_by_views": top_by_views,
                 "chunk_summaries": chunk_summaries,
             }
-            parsed = _ollama_json_call(
-                base_url=base_url,
-                model=model,
+            parsed = _llm_json_call(
+                cfg=cfg,
                 system=system_final,
                 user_obj=user_final,
                 required_keys=["positioning", "content_pillars", "action_plan_30d", "strengths", "gaps"],
@@ -2962,9 +2702,8 @@ def _build_llm_insights(
                     "убери англицизмы, хэштеги, @упоминания. Заполни пропуски разумно на основе входных данных. "
                     "Сохрани структуру и ключи JSON 1-в-1."
                 )
-                parsed = _ollama_json_call(
-                    base_url=base_url,
-                    model=model,
+                parsed = _llm_json_call(
+                    cfg=cfg,
                     system=system_polish,
                     user_obj={
                         "profile": profile,
@@ -3062,9 +2801,9 @@ def _build_llm_insights(
     bench_table_rows = [{c: r.get(c, "") for c in columns} for r in benchmark_rows]
 
     out = {
-        "provider": "ollama",
-        "base_url": base_url,
-        "model": model,
+        "provider": cfg.llm_provider,
+        "base_url": cfg.llm_base_url,
+        "model": cfg.llm_model,
         "period": {"start": start_s, "end": end_s},
         "benchmark": {"columns": columns, "rows": bench_table_rows},
         "profiles": profile_outputs,
@@ -3081,32 +2820,17 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
     apify_base_url = (os.environ.get("APIFY_BASE_URL") or "https://api.apify.com").strip()
     output_dir = Path(os.environ.get("OUTPUT_DIR", "output")).expanduser()
     db_path = Path(os.environ.get("DB_PATH", "cache/instagram_apify.sqlite")).expanduser()
-    ollama_base_url = (os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
-    ollama_model = (os.environ.get("OLLAMA_MODEL") or "llama3.2:3b").strip()
+
+    llm_provider = (os.environ.get("LLM_PROVIDER") or "openai").strip().lower()
+    llm_base_url = (os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").strip()
+    llm_api_key = (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+    llm_model = (os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-4o-mini").strip()
+
     llm_chunk_size = int(getattr(args, "llm_chunk_size", None) or (os.environ.get("LLM_CHUNK_SIZE") or 30))
     llm_max_posts = int(getattr(args, "llm_max_posts", None) or (os.environ.get("LLM_MAX_POSTS_PER_PROFILE") or 0))
-    ollama_timeout = int(getattr(args, "ollama_timeout", None) or (os.environ.get("OLLAMA_TIMEOUT_SECONDS") or 180))
+    llm_timeout = int(getattr(args, "llm_timeout", None) or (os.environ.get("LLM_TIMEOUT_SECONDS") or 180))
     llm_polish = bool(getattr(args, "llm_polish", False) or (os.environ.get("LLM_POLISH") or "").strip().lower() in {"1", "true", "yes", "on"})
     baseline_profile = (getattr(args, "baseline", None) or (os.environ.get("BASELINE_PROFILE") or "kravira")).strip()
-
-    # Vectara (optional)
-    vectara_base_url = (os.environ.get("VECTARA_BASE_URL") or "https://api.vectara.io").strip()
-    vectara_customer_id = (getattr(args, "vectara_customer_id", None) or (os.environ.get("VECTARA_CUSTOMER_ID") or "")).strip()
-    vectara_corpus_key = (getattr(args, "vectara_corpus", None) or (os.environ.get("VECTARA_CORPUS_KEY") or "")).strip()
-    vectara_api_key = (os.environ.get("VECTARA_API_KEY") or "").strip()
-    vectara_theme_limit = int(getattr(args, "vectara_theme_limit", None) or (os.environ.get("VECTARA_THEME_LIMIT") or 40))
-
-    vectara_enabled_flag = getattr(args, "vectara", None)
-    vectara_disabled_flag = getattr(args, "no_vectara", None)
-    vectara_enabled = False
-    if vectara_enabled_flag:
-        vectara_enabled = True
-    elif vectara_disabled_flag:
-        vectara_enabled = False
-    else:
-        # auto: enable only if all required vars are present
-        vectara_enabled = bool(vectara_customer_id and vectara_corpus_key and vectara_api_key)
-    vectara_index = bool(getattr(args, "vectara_index", False) or (os.environ.get("VECTARA_INDEX") or "").strip().lower() in {"1", "true", "yes", "on"})
 
     refresh_mode = (getattr(args, "refresh", None) or "auto").strip().lower()
     if getattr(args, "update", False):
@@ -3127,20 +2851,15 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
         refresh_mode=refresh_mode,
         check_limit=max(1, int(getattr(args, "check_limit", 1) or 1)),
         analysis_mode=analysis_mode,
-        ollama_base_url=ollama_base_url,
-        ollama_model=ollama_model,
+        llm_provider=llm_provider,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
         llm_chunk_size=max(5, llm_chunk_size),
         llm_max_posts_per_profile=max(0, llm_max_posts),
-        ollama_timeout_seconds=max(30, ollama_timeout),
+        llm_timeout_seconds=max(30, llm_timeout),
         llm_polish=llm_polish,
         baseline_profile=baseline_profile,
-        vectara_base_url=vectara_base_url,
-        vectara_customer_id=vectara_customer_id,
-        vectara_api_key=vectara_api_key,
-        vectara_corpus_key=vectara_corpus_key,
-        vectara_enabled=vectara_enabled,
-        vectara_index=vectara_index or vectara_enabled,  # default: index when enabled
-        vectara_theme_limit=max(5, vectara_theme_limit),
     )
 
 
@@ -3156,16 +2875,9 @@ def main() -> int:
     parser.add_argument("--analysis", default="llm", help="llm | none (по умолчанию llm)")
     parser.add_argument("--llm-chunk-size", dest="llm_chunk_size", type=int, default=30, help="Сколько постов отправлять в LLM за 1 запрос (по умолчанию 30)")
     parser.add_argument("--llm-max-posts", dest="llm_max_posts", type=int, default=0, help="Ограничение постов на профиль для LLM (0 = все)")
-    parser.add_argument("--ollama-timeout", dest="ollama_timeout", type=int, default=180, help="Таймаут одного запроса к Ollama (сек)")
+    parser.add_argument("--llm-timeout", dest="llm_timeout", type=int, default=180, help="Таймаут одного запроса к LLM (сек)")
     parser.add_argument("--llm-polish", dest="llm_polish", action="store_true", help="Доп. проход редактора (может быть медленнее)")
     parser.add_argument("--baseline", default=os.environ.get("BASELINE_PROFILE", "kravira"), help="С кем сравнивать всех (по умолчанию kravira)")
-    g = parser.add_mutually_exclusive_group()
-    g.add_argument("--vectara", action="store_true", help="Включить Vectara (поиск/бенчмарк по темам). По умолчанию auto если заданы env.")
-    g.add_argument("--no-vectara", dest="no_vectara", action="store_true", help="Отключить Vectara даже если env заданы.")
-    parser.add_argument("--vectara-corpus", dest="vectara_corpus", default=None, help="Vectara corpus_key (например crp_11). Можно задать через env VECTARA_CORPUS_KEY.")
-    parser.add_argument("--vectara-customer-id", dest="vectara_customer_id", default=None, help="Vectara customer-id. Можно задать через env VECTARA_CUSTOMER_ID.")
-    parser.add_argument("--vectara-index", dest="vectara_index", action="store_true", help="Принудительно индексировать новые посты в Vectara (иначе auto при включении).")
-    parser.add_argument("--vectara-theme-limit", dest="vectara_theme_limit", type=int, default=40, help="Сколько результатов брать из Vectara на одну тему (по умолчанию 40)")
     parser.add_argument(
         "--publish-dir",
         default=None,

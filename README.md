@@ -14,23 +14,15 @@
 - Apify аккаунт и `APIFY_TOKEN`
 - Заполнить `.env` (см. `.env.example`)
 
-## LLM‑анализ (только LLM, бесплатно)
+## LLM‑анализ (через OpenAI‑совместимый API)
 
-Если хотите, чтобы темы/рекомендации делала **только LLM** (без правил/эвристик), используйте Ollama (локально, бесплатно):
+Если хотите, чтобы рекомендации делала **только LLM** (без правил/эвристик), укажите ключ и модель в `.env`:
 
-1) Установить Ollama и запустить сервис:
+- `LLM_API_KEY` (или `OPENAI_API_KEY`)
+- `LLM_MODEL` (например `gpt-4o-mini`)
+- опционально `LLM_BASE_URL` (по умолчанию `https://api.openai.com/v1`)
 
-```bash
-ollama serve
-```
-
-2) Скачать модель (пример):
-
-```bash
-ollama pull llama3.2:3b
-```
-
-3) Запуск скрапера с LLM‑анализом:
+Запуск скрапера с LLM‑анализом:
 
 ```bash
 ./.venv/bin/python ig_apify_scrape.py --analysis llm --publish-dir docs
@@ -38,7 +30,7 @@ ollama pull llama3.2:3b
 
 LLM‑результат сохраняется в `output/llm_insights_<period>.json` и добавляется в HTML‑отчёт.
 
-Если Ollama временно недоступен, можно собрать только скрапинг + отчёт без LLM‑секции:
+Если LLM недоступна или ключ не задан, можно собрать только скрапинг + отчёт без LLM‑секции:
 
 ```bash
 ./.venv/bin/python ig_apify_scrape.py --analysis none --publish-dir docs
