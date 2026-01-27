@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Скрапинг прайса mercimed.by через Apify Puppeteer Scraper.
-Результат — таблица по специальностям и красивый HTML-отчёт (без LLM).
+Скрапинг прайса ЛОДЭ (lode.by) через Apify Puppeteer Scraper.
+Старт: https://www.lode.by/uslugi-dlya-vzroslykh/ — услуги для взрослых.
+Результат — таблица по разделам (специальностям) и HTML-отчёт (без LLM).
 
-Сайт показывает антибот-страницу «Please wait while your request is being verified» и через ~5 сек
-делает reload. В run включены useChrome + headless: false и ожидание исчезновения гейта (или
-появления BYN/руб) до 60 сек. Если всё равно пусто — попробуйте residential proxy или
-скрапить по одному URL с --no-crawl.
+Используются те же приёмы, что и для Mercimed: useChrome + headless: false,
+ожидание антибот-гейта (если есть) до 60 сек, извлечение из таблиц и текста (BYN/руб).
 """
 from __future__ import annotations
 
@@ -30,24 +29,23 @@ load_dotenv()
 
 BASE_URL = "https://api.apify.com"
 PUPPETEER_ACTOR = "apify~puppeteer-scraper"
-# Страница: mercimed.by показывает антибот «Please wait while your request is being verified» и через 5 сек делает reload.
-# Ждём прохождения гейта (исчезновение "Please wait"/"being verified" или появление BYN/руб), затем извлекаем прайс.
+# Ждём появления контента с ценами (BYN/руб) или отсутствия гейта. Для ЛОДЭ — короче, чтобы уложиться в pageLoadTimeout.
 PAGE_FUNCTION = r"""
 async function pageFunction(context) {
   const { page, request, Apify } = context;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  await sleep(8000);
+  await sleep(5000);
   try {
     await page.waitForFunction(
       () => {
         const t = document.body && document.body.innerText ? document.body.innerText : '';
         const isGate = /Please wait while your request is being verified|One moment, please/i.test(t);
-        const hasPrices = t.length > 2000 && (/BYN|руб|от\s+\d/i.test(t) || /\d[\d\s.,]+\s*(?:BYN|руб)/i.test(t));
+        const hasPrices = t.length > 1500 && (/BYN|руб|от\s+\d/i.test(t) || /\d[\d\s.,]+\s*(?:BYN|руб)/i.test(t));
         return !isGate || hasPrices;
       },
-      { timeout: 60000 }
+      { timeout: 45000 }
     );
-    await sleep(5000);
+    await sleep(3000);
   } catch (e) {}
   const url = request.url;
   const path = url.replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '');
@@ -154,9 +152,7 @@ def run_puppeteer_scraper(
     crawl_subpages: bool = True,
     max_pages: int = 50,
 ) -> list[dict[str, Any]]:
-    """Запуск Apify Puppeteer Scraper. start_urls — список стартовых URL.
-    Если crawl_subpages=True и один URL, обходит все ссылки под ним (globs = url + /**).
-    """
+    """Запуск Apify Puppeteer Scraper. start_urls — список стартовых URL."""
     urls = [u.strip() for u in start_urls if u and u.strip()]
     if not urls:
         raise ValueError("Нужен хотя бы один start URL")
@@ -165,8 +161,8 @@ def run_puppeteer_scraper(
         "pageFunction": PAGE_FUNCTION,
         "proxyConfiguration": {"useApifyProxy": True},
         "maxPagesPerCrawl": max_pages if crawl_subpages else len(urls),
-        "pageFunctionTimeoutSecs": 180,
-        "pageLoadTimeoutSecs": 120,
+        "pageFunctionTimeoutSecs": 200,
+        "pageLoadTimeoutSecs": 180,
         "useChrome": True,
         "headless": False,
     }
@@ -187,7 +183,6 @@ def run_puppeteer_scraper(
         raise RuntimeError(f"Apify: не получили run id: {started}")
 
     deadline = time.time() + wait_timeout
-    run_data: dict[str, Any] = {}
     while time.time() < deadline:
         info = _apify_request(
             base_url=base_url,
@@ -197,7 +192,6 @@ def run_puppeteer_scraper(
             timeout=60,
         )
         data = info.get("data") or {}
-        run_data = data
         status = (data.get("status") or "").upper()
         if status == "SUCCEEDED":
             ds_id = data.get("defaultDatasetId")
@@ -230,7 +224,7 @@ def run_puppeteer_scraper(
 
 
 def by_specialty_from_apify_items(apify_items: list[dict[str, Any]]) -> dict[str, list[tuple[str, float | None]]]:
-    """Собрать по специальностям списки (название, цена) из вывода Apify."""
+    """Собрать по разделам списки (название, цена) из вывода Apify."""
     by_spec: dict[str, list[tuple[str, float | None]]] = defaultdict(list)
     seen_per_spec: dict[str, set[str]] = defaultdict(set)
     skip_names = {"услуга стоимость", "услуга", "стоимость", "наименование", "название"}
@@ -255,7 +249,7 @@ def by_specialty_from_apify_items(apify_items: list[dict[str, Any]]) -> dict[str
 
 
 def analysis_rows(by_specialty: dict[str, list[tuple[str, float | None]]]) -> list[dict[str, Any]]:
-    """Анализ по специальностям: количество, мин/макс/средняя."""
+    """Анализ по разделам: количество, мин/макс/средняя."""
     out = []
     for spec in sorted(by_specialty.keys()):
         items = by_specialty[spec]
@@ -278,7 +272,7 @@ def write_html_report(
     analysis: list[dict[str, Any]],
     source_url: str,
 ) -> None:
-    """Пишет один HTML-файл с таблицами по специальностям и анализом."""
+    """Пишет один HTML-файл с таблицами по разделам и анализом."""
     def esc(s: Any) -> str:
         return html.escape(str(s) if s is not None else "")
 
@@ -292,7 +286,7 @@ def write_html_report(
           <h2 class="card-title">{esc(spec)}</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Услуга / операция</th><th class="num">Цена, руб</th></tr></thead>
+              <thead><tr><th>Услуга</th><th class="num">Цена, руб</th></tr></thead>
               <tbody>
                 {"".join(
                   f"<tr><td>{esc(n)}</td><td class='num'>{esc(p) if p is not None else '—'}</td></tr>"
@@ -315,7 +309,7 @@ def write_html_report(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Прайс Mercimed — по специальностям</title>
+  <title>Прайс ЛОДЭ — услуги для взрослых</title>
   <style>
     :root {{
       --bg: #0b1220;
@@ -357,15 +351,15 @@ def write_html_report(
 <body>
   <div class="wrap">
     <header class="header">
-      <h1>Прайс Mercimed.by</h1>
-      <p class="subtitle">Услуги и операции по специальностям. Источник: <a href="{esc(source_url)}" target="_blank" rel="noopener">{esc(source_url)}</a>. Собрано через Apify Puppeteer Scraper (без LLM).</p>
+      <h1>Прайс МЦ «ЛОДЭ» — услуги для взрослых</h1>
+      <p class="subtitle">Источник: <a href="{esc(source_url)}" target="_blank" rel="noopener">{esc(source_url)}</a>. Собрано через Apify Puppeteer Scraper (без LLM).</p>
     </header>
 
     <section class="card anal-table">
-      <h2 class="card-title">Анализ по специальностям</h2>
+      <h2 class="card-title">Анализ по разделам</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Специальность</th><th class="num">Всего</th><th class="num">С ценой</th><th class="num">Мин, руб</th><th class="num">Макс, руб</th><th class="num">Средняя, руб</th></tr></thead>
+          <thead><tr><th>Раздел</th><th class="num">Всего</th><th class="num">С ценой</th><th class="num">Мин, руб</th><th class="num">Макс, руб</th><th class="num">Средняя, руб</th></tr></thead>
           <tbody>{anal_tr}</tbody>
         </table>
       </div>
@@ -374,7 +368,7 @@ def write_html_report(
     {"".join(rows_html)}
 
     <footer class="footer">
-      Данные взяты с сайта mercimed.by в ознакомительных целях. Актуальность уточняйте на сайте или по телефону клиники.
+      Данные взяты с сайта lode.by в ознакомительных целях. Полный прейскурант доступен у администраторов. Цены носят справочный характер.
     </footer>
   </div>
 </body>
@@ -384,16 +378,16 @@ def write_html_report(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Скрапинг прайса mercimed.by через Apify → HTML-отчёт (без LLM)")
+    parser = argparse.ArgumentParser(description="Скрапинг прайса ЛОДЭ (lode.by) через Apify → HTML-отчёт (без LLM)")
     parser.add_argument(
         "--url",
-        default="https://mercimed.by/uslugi/khirurgiya/",
-        help="Стартовый URL или несколько через запятую (напр. .../khirurgiya/, .../ortopediya/). Обход подстраниц — только при одном URL.",
+        default="https://www.lode.by/uslugi-dlya-vzroslykh/",
+        help="Стартовый URL или несколько через запятую. Обход подстраниц — только при одном URL.",
     )
-    parser.add_argument("-o", "--output", type=Path, default=Path("output/mercimed_report.html"), help="Путь к HTML-отчёту")
+    parser.add_argument("-o", "--output", type=Path, default=Path("output/lode_report.html"), help="Путь к HTML-отчёту")
     parser.add_argument("--wait", type=int, default=500, help="Макс. ожидание завершения run, сек")
     parser.add_argument("--no-crawl", action="store_true", help="Не обходить подстраницы, только перечисленные --url")
-    parser.add_argument("--max-pages", type=int, default=40, help="Макс. страниц при обходе подстраниц")
+    parser.add_argument("--max-pages", type=int, default=80, help="Макс. страниц при обходе подстраниц")
     args = parser.parse_args()
 
     token = (os.environ.get("APIFY_TOKEN") or "").strip()
@@ -404,7 +398,7 @@ def main() -> int:
     base = (os.environ.get("APIFY_BASE_URL") or BASE_URL).strip()
     start_urls = [u.strip() for u in args.url.split(",") if u.strip()]
     crawl = not args.no_crawl and len(start_urls) <= 1
-    print("Запуск Apify Puppeteer Scraper:", start_urls[:3], "…" if len(start_urls) > 3 else "", "обход подстраниц:", crawl, file=sys.stderr)
+    print("Запуск Apify Puppeteer Scraper (ЛОДЭ):", start_urls[:3], "…" if len(start_urls) > 3 else "", "обход подстраниц:", crawl, file=sys.stderr)
     try:
         items = run_puppeteer_scraper(
             start_urls,

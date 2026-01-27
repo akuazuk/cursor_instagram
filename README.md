@@ -140,3 +140,22 @@ python mercimed_apify_scraper.py --url "https://mercimed.by/uslugi/khirurgiya/" 
 - **Несколько URL за один запуск** (без перехода по ссылкам):  
   `--url "https://mercimed.by/uslugi/khirurgiya/,https://mercimed.by/uslugi/napravleniya/ortopediya/" --no-crawl`.
 - Главная страница «Хирургия» — по сути меню; цены обычно на подстраницах (гинекологические операции, ортопедия и т.п.), поэтому имеет смысл либо обход с `--no-crawl` выключенным, либо явный список подстраниц через `--url url1,url2,... --no-crawl`.
+
+---
+
+## Прайс ЛОДЭ (услуги для взрослых)
+
+Скрипт **`lode_apify_scraper.py`** собирает прайс с [lode.by — услуги для взрослых](https://www.lode.by/uslugi-dlya-vzroslykh/) через Apify Puppeteer (по аналогии с Mercimed). Результат — таблица по разделам и HTML-отчёт.
+
+**Запуск:**
+```bash
+python lode_apify_scraper.py
+```
+
+По умолчанию стартует с одной страницы и обходит подстраницы разделов. Результат — `output/lode_report.html`. Нужен `APIFY_TOKEN` в `.env`.
+
+**Если загрузка таймаутится** (Navigation timed out), попробуйте явные разделы без обхода:
+```bash
+python lode_apify_scraper.py --no-crawl --url "https://www.lode.by/uslugi-dlya-vzroslykh/ginekologiya/,https://www.lode.by/uslugi-dlya-vzroslykh/allergologiya/"
+```
+Точные URL разделов смотрите на сайте в меню «Взрослым».
