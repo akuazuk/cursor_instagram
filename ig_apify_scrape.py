@@ -1173,19 +1173,20 @@ def _publish_outputs(publish_dir: Path, outputs: dict[str, Path]) -> Path:
       Статический отчёт (GitHub Pages). Данные собраны через
       <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
     </div>
+    <div class="sub" style="margin-top:8px">Выберите период ниже и откройте отчёт — внутри есть сводки по аккаунтам, топ постов и анализ.</div>
 
     <div class="grid">
-      {''.join(cards_html) if cards_html else '<div class="card"><div class="muted">Пока нет отчётов. Сгенерируй docs/ через --publish-dir.</div></div>'}
+      {''.join(cards_html) if cards_html else '<div class="card"><div class="muted">Пока нет отчётов. Сгенерируй docs/ через <code>--publish-dir docs</code>.</div></div>'}
     </div>
 
     <div class="howto">
       <div class="card-title">Как обновить</div>
-      <div class="sub">Локально (перескрапить и обновить docs):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
-      <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
-      <div class="sub" style="margin-top:10px">Если LLM недоступна или ключ не задан (только скрапинг + отчёт без LLM‑секции):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
+      <div class="sub">С LLM (нужен OPENAI_API_KEY в .env):</div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
+      <div class="sub" style="margin-top:10px">Без LLM (только скрапинг + отчёт):</div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
+      <div class="sub" style="margin-top:10px">Авто (перескрап только при появлении новых постов):</div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
     </div>
   </div>
 </body>
@@ -1454,11 +1455,13 @@ def _write_html_report(
     details.card > summary::-webkit-details-marker {{ display: none; }}
     .chips {{ display:flex; flex-wrap:wrap; gap: 8px; margin-top: 4px; }}
     .chip {{ display:inline-flex; align-items:center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--grid); background: rgba(255,255,255,0.03); font-size: 12px; }}
+    .nav-back {{ margin-bottom: 16px; font-size: 14px; }}
     @media (max-width: 980px) {{ .grid {{ grid-template-columns: 1fr; }} .bar-row {{ grid-template-columns: 120px 1fr 80px; }} }}
   </style>
 </head>
 <body>
   <div class="wrap">
+    <nav class="nav-back"><a href="index.html">← К списку отчётов</a></nav>
     <div class="header">
       <div>
         <div class="title">Instagram report</div>
@@ -2864,7 +2867,7 @@ def load_config_from_env(args: argparse.Namespace) -> Config:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Apify Instagram batch scraper: targets + period + cache + summary + LLM-only analysis")
-    parser.add_argument("--targets", default=os.environ.get("TARGETS_FILE", "targets.txt"))
+    parser.add_argument("--targets", default=os.environ.get("TARGETS_FILE", "targets.csv"), help="targets.csv — подписи ЛОДЭ/Нордин и т.д.; targets.txt — только URL по строкам")
     parser.add_argument("--start", default=None, help="YYYY-MM-DD (UTC)")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD end-exclusive (UTC)")
     parser.add_argument("--period", default=None, help="this-month | last-month | last-30d (если --start/--end не заданы)")
