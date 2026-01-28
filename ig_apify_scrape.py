@@ -6,6 +6,7 @@ import html
 import json
 import os
 import re
+import ssl
 import sqlite3
 import statistics
 import time
@@ -2815,6 +2816,11 @@ def _build_llm_insights(
 
 def load_config_from_env(args: argparse.Namespace) -> Config:
     load_dotenv()
+    if os.environ.get("DISABLE_SSL_VERIFY", "").strip().lower() in ("1", "true", "yes"):
+        _ssl_ctx = ssl.create_default_context()
+        _ssl_ctx.check_hostname = False
+        _ssl_ctx.verify_mode = ssl.CERT_NONE
+        urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_ctx)))
     apify_token = (os.environ.get("APIFY_TOKEN") or "").strip()
     if not apify_token:
         raise SystemExit("Не задан APIFY_TOKEN. Скопируй `.env.example` -> `.env` и вставь токен.")

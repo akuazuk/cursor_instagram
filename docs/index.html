@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Все отчёты — Instagram, Mercimed, ЛОДЭ</title>
+  <title>Instagram reports</title>
   <style>
     :root {
       --bg: #0b1220;
@@ -76,11 +76,12 @@
 </head>
 <body>
   <div class="wrap">
-    <h1 class="title">Все отчёты</h1>
+    <h1 class="title">Instagram reports</h1>
     <div class="sub">
-      Instagram — через <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
-      Прайсы Mercimed и ЛОДЭ — через Apify Puppeteer. Всё на одной странице.
+      Статический отчёт (GitHub Pages). Данные собраны через
+      <a href="https://apify.com/apify/instagram-scraper" target="_blank" rel="noopener noreferrer">apify/instagram-scraper</a>.
     </div>
+    <div class="sub" style="margin-top:8px">Выберите период ниже и откройте отчёт — внутри есть сводки по аккаунтам, топ постов и анализ.</div>
 
     <div class="grid">
       
@@ -94,7 +95,7 @@
               </div>
               <div class="muted">Файлы данных:</div>
               <div class="chips">
-                <a class="chip" href="summary_2026-01-01_to_2026-02-01.csv">summary_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="items_2026-01-01_to_2026-02-01.csv">items_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="llm_insights_2026-01-01_to_2026-02-01.json">llm_insights_2026-01-01_to_2026-02-01.json</a><a class="chip" href="llm_benchmark_2026-01-01_to_2026-02-01.csv">llm_benchmark_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="benchmark_vs_kravira.by_2026-01-01_to_2026-02-01.csv">benchmark_vs_kravira.by_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="llm_vs_kravira.by_2026-01-01_to_2026-02-01.json">llm_vs_kravira.by_2026-01-01_to_2026-02-01.json</a><a class="chip" href="questions_vs_kravira.by_2026-01-01_to_2026-02-01.json">questions_vs_kravira.by_2026-01-01_to_2026-02-01.json</a>
+                <a class="chip" href="summary_2026-01-01_to_2026-02-01.csv">summary_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="items_2026-01-01_to_2026-02-01.csv">items_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="llm_insights_2026-01-01_to_2026-02-01.json">llm_insights_2026-01-01_to_2026-02-01.json</a><a class="chip" href="llm_benchmark_2026-01-01_to_2026-02-01.csv">llm_benchmark_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="benchmark_vs_kravira.by_2026-01-01_to_2026-02-01.csv">benchmark_vs_kravira.by_2026-01-01_to_2026-02-01.csv</a><a class="chip" href="llm_vs_kravira.by_2026-01-01_to_2026-02-01.json">llm_vs_kravira.by_2026-01-01_to_2026-02-01.json</a>
               </div>
             </div>
             
@@ -112,38 +113,16 @@
               </div>
             </div>
             
-            <div class="card">
-              <div class="card-top">
-                <div>
-                  <div class="card-title">Mercimed.by</div>
-                  <div class="card-period">Прайс по специальностям</div>
-                </div>
-                <a class="btn" href="mercimed_report.html">Открыть отчёт</a>
-              </div>
-              <div class="muted">Услуги и операции, Apify Puppeteer (без LLM).</div>
-            </div>
-            
-            <div class="card">
-              <div class="card-top">
-                <div>
-                  <div class="card-title">ЛОДЭ (lode.by)</div>
-                  <div class="card-period">Услуги для взрослых</div>
-                </div>
-                <a class="btn" href="lode_report.html">Открыть отчёт</a>
-              </div>
-              <div class="muted">Прайс по разделам, Apify Puppeteer (без LLM).</div>
-            </div>
-            
     </div>
 
     <div class="howto">
       <div class="card-title">Как обновить</div>
-      <div class="sub">Локально (перескрапить и обновить docs):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
-      <div class="sub" style="margin-top:10px">Авто (если новых постов нет, перескрапа не будет):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
+      <div class="sub">С LLM (нужен OPENAI_API_KEY в .env):</div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh always --analysis llm</code></div>
       <div class="sub" style="margin-top:10px">Без LLM (только скрапинг + отчёт):</div>
-      <div style="margin-top:10px"><code>./.venv/bin/python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh always --analysis none</code></div>
+      <div class="sub" style="margin-top:10px">Авто (перескрап только при появлении новых постов):</div>
+      <div style="margin-top:10px"><code>python ig_apify_scrape.py --publish-dir docs --refresh auto --analysis llm</code></div>
     </div>
   </div>
 </body>
